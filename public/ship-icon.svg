@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#6366f1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- Ship Hull -->
+  <path d="M2 18s3-2 10-2 10 2 10 2l-2 3H4L2 18z" />
+  <!-- Ship Structure -->
+  <path d="M6 16v-4h4v4M14 16v-6h4v6" />
+  <!-- Radar/Signal Waves -->
+  <path d="M12 10V2" opacity="0.6" />
+  <circle cx="12" cy="2" r="1.5" fill="#6366f1" />
+  <path d="M8 6c1.5-1.5 6.5-1.5 8 0" opacity="0.4" />
+  <path d="M5 9c3-3 11-3 14 0" opacity="0.2" />
+</svg>
