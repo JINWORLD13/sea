@@ -3,12 +3,13 @@
 // Status bar: ship count, legend, share & export.
 import { Activity, Share2, FileDown } from "lucide-react";
 import { useShipStore, selectDisplayShips } from "../../store/useShipStore";
+import type { TranslationKey } from "../../constants/translations";
 
 interface StatsBarProps {
   isFleetOnly: boolean;
   shipCountFleet: number;
   shipCountTotal: number;
-  t: (key: string) => string;
+  t: (key: TranslationKey) => string;
 }
 
 const StatsBar = ({

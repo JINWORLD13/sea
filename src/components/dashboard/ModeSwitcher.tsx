@@ -2,13 +2,14 @@
 // 運用モード選択ボタン（Fleet / Safety / Marina）
 // Operation mode switcher (Fleet / Safety / Marina).
 import { Anchor, ShieldAlert, Compass } from "lucide-react";
+import type { TranslationKey } from "../../constants/translations";
 
 type ModeId = "fleet" | "safety" | "marina";
 
 interface ModeSwitcherProps {
   platformMode: ModeId;
   onSwitchMode: (mode: ModeId) => void;
-  t: (key: string) => string;
+  t: (key: TranslationKey) => string;
 }
 
 const ModeSwitcher = ({ platformMode, onSwitchMode, t }: ModeSwitcherProps) => {

@@ -54,6 +54,9 @@ wss.on("connection", (clientSocket) => {
   console.log("[Proxy] Browser connected");
 
   let aisSocket = null;
+  // 클라이언트 끊김 시 AIS 소켓을 400ms 지연 후 닫기 위한 타이머 (순간 끊김/재연결 대비)
+  // クライアント切断時にAISソケットを400ms遅延後に閉じるためのタイマー（瞬間切断・再接続対策）
+  // Timer to close AIS socket 400ms after client disconnect (handles brief disconnects/reconnect)
   let closeTimer = null;
 
   // 브라우저에서 메시지(구독 요청)를 받으면 AIS 서버와 연결 시작
@@ -75,19 +78,22 @@ wss.on("connection", (clientSocket) => {
         BoundingBoxes: clientRequest.BoundingBoxes || [],
       };
 
+      // 새 구독 요청 시 예약된 closeTimer가 있으면 취소 (AIS 소켓을 닫지 않음)
+      // 新規購読リクエスト時に予約されたcloseTimerがあればキャンセル（AISソケットを閉じない）
+      // Cancel scheduled closeTimer on new subscription so we don't close AIS socket
       if (closeTimer) {
         clearTimeout(closeTimer);
         closeTimer = null;
       }
 
       // 새 연결을 먼저 열고, 열린 뒤에만 이전 연결을 닫음 (연결 전 닫기로 인한 1006 방지)
-      //
+      // 新接続を先に開き、開いた後にのみ前の接続を閉じる（接続前に閉じると1006が出るため）
       // Open new connection first; close previous only after new one is open
       const previousAisSocket = aisSocket;
       console.log("[Proxy] Connecting to AISStream...");
       aisSocket = new WebSocket(AIS_URL);
 
-      // 업스트림 연결 성공 시 구독 메시지 전송
+      // 업스트림 연결 성공 시 구독 메시지 전송(전 소켓을 먼저 닫고 나서 새 소켓에 구독을 보내면, 그 사이에 어느 쪽에서도 데이터를 받지 못하는 짧은 공백이 생깁니다.지금처럼 새 소켓에 구독 먼저 → 이전 소켓 닫기 순서가 데이터 끊김을 줄이는 맞는 순서)
       // アップストリーム接続成功時に購読メッセージを送信
       // On upstream connection success, send subscription message
       aisSocket.onopen = () => {
@@ -130,6 +136,9 @@ wss.on("connection", (clientSocket) => {
   clientSocket.on("close", () => {
     console.log("[Proxy] Browser connection closed");
     if (closeTimer) clearTimeout(closeTimer);
+    // 400ms 후에 AIS 업스트림 닫기 (즉시 닫지 않음 → 순간 끊김/재연결 시 불필요한 재연결 방지)
+    // 400ms後にAISアップストリームを閉じる（即時閉じない→瞬間切断・再接続時の不要な再接続を防止）
+    // Close AIS upstream after 400ms (delay avoids unnecessary reconnect on brief disconnect)
     closeTimer = setTimeout(() => {
       if (aisSocket) aisSocket.close();
       closeTimer = null;

@@ -104,6 +104,10 @@ seadronix/
    npm run dev
    ```
 
+### Data flow
+
+**Frontend ↔ Proxy server ↔ AISStream** — WebSocket bidirectional. The frontend sends subscription requests (e.g. BoundingBoxes) to the proxy; the proxy forwards them to AISStream; AIS data streams back AISStream → proxy → frontend.
+
 ### Security (API keys)
 
 All use of the AIS API key is over secure channels only:

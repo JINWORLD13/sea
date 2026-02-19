@@ -89,7 +89,11 @@ seadronix/
    VITE_AISSTREAM_API_KEY=your_api_key_here
    ```
 
-## 💡 技術적 課題と解決策
+### データフロー
+
+**フロント ↔ プロキシサーバー ↔ AISStream** — WebSocket双方向通信。フロントから購読リクエスト（例：BoundingBoxes）をサーバーに送ると、サーバーがAISStreamへ転送し、AISデータはAISStream → サーバー → フロントへストリーミングされます。
+
+## 💡 技術的課題と解決策
 
 ### 1. 高頻度 WebSocket データの処理最適化
 

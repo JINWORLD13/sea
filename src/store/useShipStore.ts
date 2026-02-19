@@ -78,7 +78,6 @@ interface ShipStore {
   marinaMode: boolean;
   searchQuery: string;
   mapCenterOverride: [number, number] | null;
-  isAisStreaming: boolean;
   isConnected: boolean;
 
   updateShip: (
@@ -363,7 +362,6 @@ export const useShipStore = create<ShipStore>((set, get) => {
     marinaMode: false,
     searchQuery: "",
     mapCenterOverride: null,
-    isAisStreaming: false,
     isConnected: false,
 
     // 선박 정보 업데이트 (updateShip)

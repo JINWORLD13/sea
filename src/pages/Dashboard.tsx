@@ -27,10 +27,9 @@ import StatsBar from "../components/dashboard/StatsBar";
 import { useTranslation } from "react-i18next";
 
 const Dashboard = () => {
-  // 플랫폼 모드와 사이드 패널 상태 관리
-  // プラットフォームモードとサイドパネルの状態管理
-  // Manage platform mode and side panel state.
-  const [panelMode] = useState<"intelligence">("intelligence");
+  // 플랫폼 모드 상태 관리
+  // プラットフォームモードの状態管理
+  // Manage platform mode state.
   const [platformMode, setPlatformMode] = useState<
     "fleet" | "safety" | "marina"
   >("fleet");

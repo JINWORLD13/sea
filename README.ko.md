@@ -89,6 +89,10 @@ seadronix/
    VITE_AISSTREAM_API_KEY=your_api_key_here
    ```
 
+### 데이터 흐름
+
+**프론트 ↔ 프록시 서버 ↔ AISStream** — WebSocket 쌍방향 통신. 프론트에서 구독 요청(예: BoundingBoxes)을 서버로 보내면, 서버가 AISStream으로 전달하고, AIS 데이터는 AISStream → 서버 → 프론트로 스트리밍됩니다.
+
 ## 💡 기술적 도전 및 해결책
 
 ### 1. 고주파 WebSocket 데이터 처리 최적화
