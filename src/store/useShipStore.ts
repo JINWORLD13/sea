@@ -116,9 +116,9 @@ const regions: Record<Region["id"], Region> = {
   },
   singapore: {
     id: "singapore",
-    name: "Singapore Port",
+    name: "Global Area",
     center: [1.2901, 103.8519],
-    bounds: [1.1, 103.6, 1.4, 104.0],
+    bounds: [-90, -180, 90, 180],
   },
 };
 
@@ -225,6 +225,7 @@ export const selectDisplayShips = (
   state: ShipStore,
 ): Record<string, ShipData> => {
   if (Object.keys(state.ships).length > 0) return state.ships;
+  if (state.isConnected) return state.ships;
   const regionId = state.currentRegion.id;
   if (displayDemoCache && displayDemoCache.regionId === regionId) {
     return displayDemoCache.ships;
@@ -616,6 +617,7 @@ export const matchShipQuery = (ship: ShipData, query: string): boolean => {
 
 let activeSocket: WebSocket | null = null;
 let pendingClose = false;
+let debugAisMessageCount = 0;
 
 const getProxyWsUrl = (): string => {
   const url = import.meta.env.VITE_PROXY_WS_URL;
@@ -634,20 +636,22 @@ export const startAisStream = (
     activeSocket.close();
   }
   pendingClose = false;
+  debugAisMessageCount = 0;
   activeSocket = new WebSocket(getProxyWsUrl());
   activeSocket.onopen = () => {
+    console.log("[AIS] Proxy websocket connected");
     if (pendingClose && activeSocket) {
       activeSocket.close();
       activeSocket = null;
       return;
     }
     useShipStore.setState({ isConnected: true, ships: {} });
-    // AISStream expects [lng, lat] per point: [[minLng, minLat], [maxLng, maxLat]]
+    // AISStream expects [lat, lng] per point: [[minLat, minLng], [maxLat, maxLng]]
     const subscriptionMsg = {
       BoundingBoxes: [
         [
-          [bounds[1], bounds[0]],
-          [bounds[3], bounds[2]],
+          [bounds[0], bounds[1]],
+          [bounds[2], bounds[3]],
         ],
       ],
     };
@@ -662,6 +666,7 @@ export const startAisStream = (
   };
   activeSocket.onmessage = (event: MessageEvent) => {
     let rawData: {
+      error?: string;
       MetaData?: { MMSI?: unknown; ShipName?: string };
       Message?: {
         PositionReport?: {
@@ -676,6 +681,11 @@ export const startAisStream = (
     try {
       rawData = JSON.parse(event.data as string);
     } catch {
+      return;
+    }
+    if (rawData.error === "API_KEY_MISSING") {
+      console.error("[AIS] Proxy reported missing API key");
+      useShipStore.setState({ isConnected: false });
       return;
     }
     if (rawData.MetaData === undefined || rawData.Message === undefined) {
@@ -712,12 +722,29 @@ export const startAisStream = (
             ? positionReport.TrueHeading
             : 0,
       });
+      if (debugAisMessageCount < 5) {
+        debugAisMessageCount += 1;
+        console.log("[AIS] PositionReport received", {
+          count: debugAisMessageCount,
+          mmsi: currentMmsi,
+          shipName: shipNameStr,
+          lat: positionReport.Latitude,
+          lng: positionReport.Longitude,
+          sog: positionReport.Sog,
+          heading: positionReport.TrueHeading,
+        });
+      }
     }
   };
-  activeSocket.onerror = () => {
+  activeSocket.onerror = (event) => {
+    console.error("[AIS] WebSocket error", event);
     useShipStore.setState({ isConnected: false });
   };
-  activeSocket.onclose = () => {
+  activeSocket.onclose = (event) => {
+    console.log("[AIS] Proxy websocket closed", {
+      code: event.code,
+      reason: event.reason,
+    });
     activeSocket = null;
     useShipStore.setState({ isConnected: false });
   };

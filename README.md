@@ -132,6 +132,23 @@ All use of the AIS API key is over secure channels only:
   - **Lerp Interpolation**: Used `MathUtils.lerp` and `Slerp` for smooth transitions between Euler angles/quaternions.
   - **Maritime Math**: Developed utility functions to convert COG (Course Over Ground) and SOG (Speed Over Ground) into world-space velocity vectors for predictive positioning.
 
+### 3. Live Data Falling Back to Demo After Refresh
+
+- **Problem**: During browser refresh/HMR, overlapping reconnect timing occasionally triggered `readyState 0 (CONNECTING)` exceptions in the proxy, causing the proxy process to exit and the frontend to fall back to demo data (`isConnected=false`).
+- **Solution**:
+  - **Removed socket reference race**: In `server/proxy.js`, switched from mutable global send target usage to per-connection captured `nextAisSocket` bindings for `onopen/onmessage/onclose`.
+  - **Safe send guard**: In `onopen`, send only when `nextAisSocket.readyState === WebSocket.OPEN`.
+  - **Safe active socket cleanup**: In `onclose`, set `aisSocket = null` only when the closed socket is still the active one.
+
+### 4. Map Becomes Slow Under High Live Vessel Volume
+
+- **Problem**: Rendering too many live markers/popups/SVG icons at once made zoom, pan, and click interactions sluggish in global AIS mode.
+- **Solution**:
+  - **Viewport-based rendering**: Render only vessels inside the current map bounds.
+  - **Render cap**: Limit rendered vessels per frame (`MAX_RENDERED_SHIPS`) and prioritize ships near the current focus.
+  - **Icon cache optimization**: Cache `DivIcon` instances and quantize heading (5-degree buckets) to reduce icon regeneration overhead.
+  - **Auto-focus behavior tuning**: Keep one-time initial fit (`fitBounds`), but skip forced recenter during manual focus/selection flows.
+
 ## 🚀 Future Roadmap
 
 - [ ] Integration with historical AIS database for play-back functionality.

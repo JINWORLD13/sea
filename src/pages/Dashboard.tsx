@@ -33,6 +33,7 @@ const Dashboard = () => {
   const [platformMode, setPlatformMode] = useState<
     "fleet" | "safety" | "marina"
   >("fleet");
+  const [dataFeedMode, setDataFeedMode] = useState<"live" | "demo">("live");
 
   const shipStore = useShipStore();
   const shipsMap = useShipStore(selectDisplayShips);
@@ -72,6 +73,15 @@ const Dashboard = () => {
       i18nObj.changeLanguage("en");
     } else {
       i18nObj.changeLanguage("ko");
+    }
+  };
+
+  const handleFeedModeChange = (mode: "live" | "demo") => {
+    setDataFeedMode(mode);
+    if (mode === "demo") {
+      stopAisStream();
+      // Force demo source by clearing live cache/state immediately.
+      useShipStore.setState({ isConnected: false, ships: {}, selectedShipMmsi: null });
     }
   };
 
@@ -134,7 +144,13 @@ const Dashboard = () => {
   // 초기 로드 및 실시간 데이터 스트리밍 시작 (해역 변경 시에만 재연결, 의존성 최소화로 HMR/리렌더 시 불필요한 끊김 방지)
   // 初期ロードおよびリアルタイムデータストリーミングの開始（海域変更時のみ再接続）
   useEffect(() => {
-    const bounds = regionObj.bounds;
+    if (dataFeedMode === "demo") {
+      stopAisStream();
+      return;
+    }
+
+    // Always subscribe globally so verified live vessels are available on map.
+    const bounds: [number, number, number, number] = [-90, -180, 90, 180];
     startAisStream(bounds);
 
     const fullUrlSearch = window.location.search;
@@ -156,7 +172,7 @@ const Dashboard = () => {
       clearInterval(timerInterval);
     };
     // regionObj.id만 의존: 해역이 바뀔 때만 스트림 재시작. checkRiskFunc/tickFunc 제거로 리렌더 시 불필요한 연결 해제 방지.
-  }, [regionObj.id]);
+  }, [regionObj.id, dataFeedMode]);
 
   /**
    * [KO]
@@ -276,6 +292,29 @@ const Dashboard = () => {
                 </button>
               );
             })}
+          </div>
+          <div className="w-px h-6 bg-white/5 mx-1" />
+          <div className="flex items-center gap-1 bg-black/20 p-1 rounded-xl border border-white/5">
+            <button
+              onClick={() => handleFeedModeChange("live")}
+              className={`px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
+                dataFeedMode === "live"
+                  ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
+                  : "text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              LIVE
+            </button>
+            <button
+              onClick={() => handleFeedModeChange("demo")}
+              className={`px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
+                dataFeedMode === "demo"
+                  ? "bg-amber-500 text-black shadow-lg shadow-amber-500/20"
+                  : "text-slate-500 hover:text-slate-300"
+              }`}
+            >
+              DEMO
+            </button>
           </div>
           <div className="w-px h-6 bg-white/5 mx-1" />
           <button

@@ -2,7 +2,7 @@
 // 船舶地図：海域内の船舶の位置と航跡を視覚化します。
 // Ship Map: Visualizes ship positions and paths in the region.
 import type { ReactElement, FC } from "react";
-import { useEffect } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -11,6 +11,7 @@ import {
   Polyline,
   CircleMarker,
   useMap,
+  useMapEvents,
 } from "react-leaflet";
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
@@ -22,6 +23,9 @@ import {
 } from "../../store/useShipStore";
 import type { ShipData } from "../../store/useShipStore";
 import { useTranslation } from "react-i18next";
+
+const MAX_RENDERED_SHIPS = 250;
+const iconCache = new Map<string, DivIcon>();
 
 // 선종별 기본 색상 (선택되지 않았을 때)
 // 船種別デフォルト色（未選択時）
@@ -48,6 +52,17 @@ const createShipIcon = (
   riskSeverity?: string,
   inRestrictedZone?: boolean,
 ): DivIcon => {
+  const normalizedHeading = Math.round(heading / 5) * 5;
+  const cacheKey = [
+    normalizedHeading,
+    isSelected ? 1 : 0,
+    shipType,
+    riskSeverity || "",
+    inRestrictedZone ? 1 : 0,
+  ].join("|");
+  const cachedIcon = iconCache.get(cacheKey);
+  if (cachedIcon) return cachedIcon;
+
   let color: string;
   let glow: string;
   if (isSelected === true) {
@@ -85,7 +100,7 @@ const createShipIcon = (
   const innerIconSvg: string = `<path d="M12 7l4 10H8l4-10z" stroke="${color}" stroke-width="1.5" fill="${color}20" />`;
 
   const svgContentString: string = `
-    <div style="transform: rotate(${heading}deg); width: ${size}px; height: ${size}px; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;">
+    <div style="transform: rotate(${normalizedHeading}deg); width: ${size}px; height: ${size}px; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;">
       <svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" style="filter: drop-shadow(0 0 6px ${glow});">
         <circle cx="12" cy="12" r="1.5" fill="${color}" />
         <g opacity="0.7">
@@ -95,27 +110,92 @@ const createShipIcon = (
     </div>
   `;
 
-  const iconConfig: any = {
+  const iconConfig = {
     html: svgContentString,
     className: "ship-icon",
-    iconSize: [size, size],
-    iconAnchor: [size / 2, size / 2],
+    iconSize: [size, size] as [number, number],
+    iconAnchor: [size / 2, size / 2] as [number, number],
   };
 
   const finalIcon: DivIcon = L.divIcon(iconConfig);
+  iconCache.set(cacheKey, finalIcon);
   return finalIcon;
 };
 
 interface RecenterProps {
   center: [number, number];
   regionId: string;
+  zoom: number;
 }
 
 const RecenterMap: FC<RecenterProps> = (props: RecenterProps): null => {
   const mapInstance = useMap();
   useEffect(() => {
-    mapInstance.setView(props.center, mapInstance.getZoom());
-  }, [props.center, props.regionId, mapInstance]);
+    mapInstance.setView(props.center, props.zoom);
+  }, [props.center, props.regionId, props.zoom, mapInstance]);
+  return null;
+};
+
+interface AutoFitShipsProps {
+  ships: ShipData[];
+  regionId: string;
+  shouldSkip: boolean;
+}
+
+const AutoFitShips: FC<AutoFitShipsProps> = ({
+  ships,
+  regionId,
+  shouldSkip,
+}): null => {
+  const mapInstance = useMap();
+  const hasFittedRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    hasFittedRef.current = false;
+  }, [regionId]);
+
+  useEffect(() => {
+    if (shouldSkip) return;
+    if (hasFittedRef.current) return;
+    if (ships.length === 0) return;
+
+    if (ships.length === 1) {
+      const only = ships[0];
+      mapInstance.setView([only.position.lat, only.position.lng], 7);
+      hasFittedRef.current = true;
+      return;
+    }
+
+    const bounds = L.latLngBounds(
+      ships.map((s) => [s.position.lat, s.position.lng] as [number, number]),
+    );
+    mapInstance.fitBounds(bounds, { padding: [32, 32], maxZoom: 6 });
+    hasFittedRef.current = true;
+  }, [ships, shouldSkip, mapInstance]);
+
+  return null;
+};
+
+interface ViewportTrackerProps {
+  onBoundsChange: (bounds: L.LatLngBounds) => void;
+}
+
+const ViewportTracker: FC<ViewportTrackerProps> = ({
+  onBoundsChange,
+}): null => {
+  const map = useMapEvents({
+    moveend: () => {
+      onBoundsChange(map.getBounds());
+    },
+    zoomend: () => {
+      onBoundsChange(map.getBounds());
+    },
+  });
+
+  useEffect(() => {
+    onBoundsChange(map.getBounds());
+  }, [map, onBoundsChange]);
+
   return null;
 };
 
@@ -129,18 +209,57 @@ const ShipMap: FC = (): ReactElement => {
   const selectShip = shipStore.selectShip;
   const searchQuery = shipStore.searchQuery;
   const marinaMode = shipStore.marinaMode;
+  const [viewBounds, setViewBounds] = useState<L.LatLngBounds | null>(null);
 
-  const shipsList = Object.values(ships) as ShipData[];
-  const filteredShips: ShipData[] = shipsList.filter((shipItem: ShipData) => {
-    const isSearchMatch: boolean = matchShipQuery(shipItem, searchQuery);
-    if (marinaMode === false) {
-      return isSearchMatch;
+  const shipsList = useMemo(() => Object.values(ships) as ShipData[], [ships]);
+  const filteredShips: ShipData[] = useMemo(() => {
+    return shipsList.filter((shipItem: ShipData) => {
+      const isSearchMatch: boolean = matchShipQuery(shipItem, searchQuery);
+      if (marinaMode === false) {
+        return isSearchMatch;
+      }
+      const isBelowSpeedHeader: boolean = shipItem.speed < 7;
+      const isAboveZero: boolean = shipItem.speed > 0;
+      const result: boolean =
+        isSearchMatch && isBelowSpeedHeader && isAboveZero;
+      return result;
+    });
+  }, [shipsList, searchQuery, marinaMode]);
+  const inViewShips: ShipData[] = useMemo(() => {
+    if (viewBounds === null) return filteredShips;
+    return filteredShips.filter((ship) =>
+      viewBounds.contains([ship.position.lat, ship.position.lng]),
+    );
+  }, [filteredShips, viewBounds]);
+  const renderShips: ShipData[] = useMemo(() => {
+    if (inViewShips.length <= MAX_RENDERED_SHIPS) return inViewShips;
+
+    const selected = selectedShipMmsi
+      ? inViewShips.find((s) => s.id === selectedShipMmsi) || null
+      : null;
+    const anchor = selected
+      ? selected.position
+      : mapCenterOverride
+        ? { lat: mapCenterOverride[0], lng: mapCenterOverride[1] }
+        : { lat: currentRegion.center[0], lng: currentRegion.center[1] };
+
+    const sorted = [...inViewShips].sort((a, b) => {
+      const da =
+        Math.abs(a.position.lat - anchor.lat) +
+        Math.abs(a.position.lng - anchor.lng);
+      const db =
+        Math.abs(b.position.lat - anchor.lat) +
+        Math.abs(b.position.lng - anchor.lng);
+      return da - db;
+    });
+
+    const limited = sorted.slice(0, MAX_RENDERED_SHIPS);
+    if (selected && limited.some((s) => s.id === selected.id) === false) {
+      limited.pop();
+      limited.unshift(selected);
     }
-    const isBelowSpeedHeader: boolean = shipItem.speed < 7;
-    const isAboveZero: boolean = shipItem.speed > 0;
-    const result: boolean = isSearchMatch && isBelowSpeedHeader && isAboveZero;
-    return result;
-  });
+    return limited;
+  }, [inViewShips, selectedShipMmsi, mapCenterOverride, currentRegion.center]);
 
   /**
    * [KO]
@@ -189,12 +308,17 @@ const ShipMap: FC = (): ReactElement => {
    */
 
   const mapCenter: [number, number] = mapCenterOverride ?? currentRegion.center;
+  const mapZoom = mapCenterOverride
+    ? 12
+    : currentRegion.id === "singapore"
+      ? 2
+      : 12;
 
   const mapMarkup: ReactElement = (
     <div className="w-full h-full relative z-0 bg-[#0b0e14]">
       <MapContainer
         center={mapCenter}
-        zoom={12}
+        zoom={mapZoom}
         scrollWheelZoom={true}
         style={{ height: "100%", width: "100%", background: "#0b0e14" }}
       >
@@ -206,9 +330,16 @@ const ShipMap: FC = (): ReactElement => {
         <RecenterMap
           center={mapCenter}
           regionId={mapCenterOverride ? "override" : currentRegion.id}
+          zoom={mapZoom}
+        />
+        <ViewportTracker onBoundsChange={setViewBounds} />
+        <AutoFitShips
+          ships={renderShips}
+          regionId={currentRegion.id}
+          shouldSkip={Boolean(mapCenterOverride) || Boolean(selectedShipMmsi)}
         />
 
-        {filteredShips.map((ship: ShipData) => {
+        {renderShips.map((ship: ShipData) => {
           const isThisSelected: boolean = selectedShipMmsi === ship.id;
           const markerPos: [number, number] = [
             ship.position.lat,
@@ -331,7 +462,7 @@ const ShipMap: FC = (): ReactElement => {
             {t("vesselsDetected")}
           </span>
           <span className="font-black text-indigo-400 text-sm">
-            {filteredShips.length}
+            {renderShips.length}
           </span>
         </div>
         <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mb-3">

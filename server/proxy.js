@@ -15,22 +15,36 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// .env 파일 로드
+// .env 파일 로드 (server 폴더 기준 상위, 없으면 cwd 기준)
 // .env ファイルを読み込む
-// Load .env file
-dotenv.config({ path: path.resolve(__dirname, "../.env") });
+// Load .env file (project root = parent of server; fallback: cwd)
+const envPath = path.resolve(__dirname, "../.env");
+dotenv.config({ path: envPath });
+if (!process.env.VITE_AISSTREAM_API_KEY) {
+  dotenv.config({ path: path.resolve(process.cwd(), ".env") });
+}
 
 const API_KEY = process.env.VITE_AISSTREAM_API_KEY;
 console.log(
   `[Proxy] API Key loaded: ${API_KEY ? "Yes (starts with " + API_KEY.substring(0, 5) + "...)" : "No"}`,
 );
+if (!API_KEY) {
+  console.log(
+    "[Proxy] Tried .env at:",
+    envPath,
+    "and",
+    path.resolve(process.cwd(), ".env"),
+  );
+}
 
 // AIS 스트림 URL 및 서버 포트 (API 키 전송은 반드시 WSS/HTTPS만 사용)
 // AISストリームURLとサーバーポート（APIキー送信は必ずWSS/HTTPSのみ）
 // AIS stream URL and server port (API key must only be sent over WSS/HTTPS)
 const AIS_URL = "wss://stream.aisstream.io/v0/stream";
 if (!AIS_URL.startsWith("wss://")) {
-  throw new Error("[Proxy] Security: AIS_URL must use wss:// when using API key.");
+  throw new Error(
+    "[Proxy] Security: AIS_URL must use wss:// when using API key.",
+  );
 }
 const PORT = 8080;
 
@@ -66,7 +80,17 @@ wss.on("connection", (clientSocket) => {
     try {
       const clientRequest = JSON.parse(data.toString());
       if (!API_KEY) {
-        console.error("[Proxy] AISStream API key missing");
+        console.error(
+          "[Proxy] AISStream API key missing — check .env and VITE_AISSTREAM_API_KEY. Using demo data only.",
+        );
+        if (clientSocket.readyState === 1) {
+          clientSocket.send(
+            JSON.stringify({
+              error: "API_KEY_MISSING",
+              message: "API key missing in .env",
+            }),
+          );
+        }
         return;
       }
       // 기존 AIS 소켓은 새 연결이 열린 뒤 onopen에서 닫음 (즉시 닫으면 1006 발생)
@@ -91,13 +115,15 @@ wss.on("connection", (clientSocket) => {
       // Open new connection first; close previous only after new one is open
       const previousAisSocket = aisSocket;
       console.log("[Proxy] Connecting to AISStream...");
-      aisSocket = new WebSocket(AIS_URL);
+      const nextAisSocket = new WebSocket(AIS_URL);
+      aisSocket = nextAisSocket;
 
       // 업스트림 연결 성공 시 구독 메시지 전송(전 소켓을 먼저 닫고 나서 새 소켓에 구독을 보내면, 그 사이에 어느 쪽에서도 데이터를 받지 못하는 짧은 공백이 생깁니다.지금처럼 새 소켓에 구독 먼저 → 이전 소켓 닫기 순서가 데이터 끊김을 줄이는 맞는 순서)
       // アップストリーム接続成功時に購読メッセージを送信
       // On upstream connection success, send subscription message
-      aisSocket.onopen = () => {
-        aisSocket.send(JSON.stringify(subRequest));
+      nextAisSocket.onopen = () => {
+        if (nextAisSocket.readyState !== WebSocket.OPEN) return;
+        nextAisSocket.send(JSON.stringify(subRequest));
         if (previousAisSocket) {
           previousAisSocket.close();
         }
@@ -106,23 +132,27 @@ wss.on("connection", (clientSocket) => {
       // AIS에서 받은 데이터를 브라우저로 중계
       // AISから受信したデータをブラウザへ中継
       // Relay data received from AIS to browser
-      aisSocket.onmessage = (event) => {
+      nextAisSocket.onmessage = (event) => {
         if (clientSocket.readyState === WebSocket.OPEN) {
-          clientSocket.send(event.data);
+          // In Node.js ws, event.data may be a Buffer. Convert to string so browser receives text, not Blob.
+          clientSocket.send(event.data.toString());
         }
       };
 
       // AISStream 업스트림 에러 처리
       // AISStreamアップストリームエラー処理
       // AISStream upstream error handling
-      aisSocket.onerror = (err) => {
+      nextAisSocket.onerror = (err) => {
         console.error("[Proxy] AISStream error:", err.message || err);
       };
 
       // AISStream 연결 종료 시 로그
       // AISStream接続終了時のログ
       // Log when AISStream connection closes
-      aisSocket.onclose = (event) => {
+      nextAisSocket.onclose = (event) => {
+        if (aisSocket === nextAisSocket) {
+          aisSocket = null;
+        }
         console.log("[Proxy] AISStream closed:", event.code, event.reason);
       };
     } catch (err) {
@@ -158,12 +188,13 @@ server.listen(PORT, () => {
 // Graceful shutdown so port 8080 is released when dev stops
 function shutdown() {
   console.log("[Proxy] Shutting down...");
+  wss.clients.forEach((client) => client.terminate());
   wss.close(() => {
     server.close(() => {
       process.exit(0);
     });
   });
-  setTimeout(() => process.exit(1), 5000);
+  setTimeout(() => process.exit(0), 1000);
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
