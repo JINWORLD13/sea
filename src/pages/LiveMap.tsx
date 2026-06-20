@@ -52,7 +52,7 @@ const LiveMap = (): ReactElement => {
         <div className="flex items-center gap-2">
           <div className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
           <p className="text-xs text-slate-400 font-bold uppercase tracking-tighter">
-            {t("globalCoverageActive")}
+            {t("streamingActive")}
           </p>
         </div>
       </div>

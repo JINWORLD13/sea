@@ -4,11 +4,11 @@
 import { type ReactElement, type FC } from "react";
 import { Ship, Anchor, AlertTriangle } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useShipStore, selectDisplayShips } from "../store/useShipStore";
+import { useShipSnapshot } from "../hooks/useShipSnapshot";
 
 const FleetStatus: FC = (): ReactElement => {
   const { t } = useTranslation();
-  const ships = useShipStore(selectDisplayShips);
+  const ships = useShipSnapshot({ delayMs: 1000 });
 
   const shipList = Object.values(ships);
   const totalVessels = shipList.length;
@@ -128,6 +128,8 @@ const FleetStatus: FC = (): ReactElement => {
             <tbody className="divide-y divide-slate-50">
               {shipList.map((ship) => {
                 const isActive = ship.speed > 0.5;
+                const fuelValue =
+                  typeof ship.fuel === "number" ? ship.fuel : null;
                 return (
                   <tr
                     key={ship.id}
@@ -161,18 +163,20 @@ const FleetStatus: FC = (): ReactElement => {
                     <td className="px-6 py-4 text-right">
                       <div className="flex flex-col items-end gap-1">
                         <span className="text-xs font-bold text-slate-600">
-                          {ship.fuel.toFixed(1)}%
+                          {fuelValue !== null ? `${fuelValue.toFixed(1)}%` : "N/A"}
                         </span>
                         <div className="w-20 h-1 bg-slate-100 rounded-full overflow-hidden">
                           <div
                             className={`h-full rounded-full ${
-                              ship.fuel > 70
+                              fuelValue === null
+                                ? "bg-slate-300"
+                                : fuelValue > 70
                                 ? "bg-emerald-400"
-                                : ship.fuel > 30
+                                : fuelValue > 30
                                   ? "bg-amber-400"
                                   : "bg-rose-400"
                             }`}
-                            style={{ width: `${ship.fuel}%` }}
+                            style={{ width: `${fuelValue ?? 0}%` }}
                           />
                         </div>
                       </div>

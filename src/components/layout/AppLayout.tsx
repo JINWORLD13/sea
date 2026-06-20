@@ -2,11 +2,35 @@
 // メインレイアウト：サイドバー、ヘッダー、コンテンツエリアを構成します。
 // Main Layout: Configures sidebar, header, and content area.
 import type { ReactElement, FC } from "react";
+import { useEffect } from "react";
 import { Outlet } from "react-router-dom";
 import Sidebar from "./Sidebar";
 import Header from "./Header";
+import {
+  startAisStream,
+  stopAisStream,
+  useShipStore,
+} from "../../store/useShipStore";
 
 const AppLayout: FC = (): ReactElement => {
+  const currentRegionId = useShipStore((state) => state.currentRegion.id);
+  const currentRegionBounds = useShipStore((state) => state.currentRegion.bounds);
+
+  useEffect(() => {
+    startAisStream(currentRegionBounds);
+
+    const maintenanceTimer = window.setInterval(() => {
+      const state = useShipStore.getState();
+      state.pruneStaleShips();
+      state.checkRisks();
+    }, 2000);
+
+    return () => {
+      stopAisStream();
+      window.clearInterval(maintenanceTimer);
+    };
+  }, [currentRegionBounds, currentRegionId]);
+
   /**
    * [KO]
    * <div(전체 레이아웃)>

@@ -2,17 +2,17 @@
 // アラートリスト：船舶の危険警告をリスト形式で表示します。
 // Alert List: Displays a list of ship danger alerts.
 import { AlertTriangle, Info, XCircle, CheckCircle } from "lucide-react";
-import { useShipStore, selectDisplayShips } from "../../store/useShipStore";
+import { useShipStore } from "../../store/useShipStore";
 import { useTranslation } from "react-i18next";
+import { useShipSnapshot } from "../../hooks/useShipSnapshot";
 
 const Alerts = () => {
   // 스토어에서 알림 데이터 가져오기
   // ストアからアラートデータを取得
   // Get alert data from the store.
-  const shipStore = useShipStore();
-  const ships = useShipStore(selectDisplayShips);
-  const selectedShipMmsi = shipStore.selectedShipMmsi;
-  const ackAlert = shipStore.ackAlert;
+  const ships = useShipSnapshot({ delayMs: 800 });
+  const selectedShipMmsi = useShipStore((state) => state.selectedShipMmsi);
+  const ackAlert = useShipStore((state) => state.ackAlert);
 
   const selectedShip = selectedShipMmsi ? ships[selectedShipMmsi] : null;
   const alerts = selectedShip?.alerts || [];

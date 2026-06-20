@@ -25,6 +25,12 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
   const anchorRef = useRef<THREE.Group>(null);
   const bobRef = useRef(0);
   const isPausedRef = useRef(false);
+  // 흔들림(bob)과 분리된 기준 자세. lerp는 기준값에만 적용하고
+  // bob은 매 프레임 그 위에 더해 누적 드리프트를 막는다.
+  // Base attitude kept separate from the bob so the lerp targets a clean
+  // value and the oscillation is layered on top each frame (no drift).
+  const basePitchRef = useRef(0);
+  const baseRollRef = useRef(0);
 
   const isMoving: boolean = data.speed > SPEED_MOORED_THRESHOLD;
   const isMoored: boolean = !isMoving;
@@ -53,8 +59,8 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
     const intensity = 0.25;
     const targetPitch = ((p * Math.PI) / 180) * intensity;
     const targetRoll = ((r * Math.PI) / 180) * intensity;
-    ref.rotation.x += (targetPitch - ref.rotation.x) * delta * 2;
-    ref.rotation.z += (targetRoll - ref.rotation.z) * delta * 2;
+    basePitchRef.current += (targetPitch - basePitchRef.current) * delta * 2;
+    baseRollRef.current += (targetRoll - baseRollRef.current) * delta * 2;
 
     // 2) 헤딩(방향) 적용
     // 2) ヘディング（方向）を適用
@@ -74,8 +80,8 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
     const bobRoll = Math.sin(t * 0.5) * 0.008;
     const bobPitch = Math.sin(t * 0.4) * 0.006;
     ref.position.y = bobY;
-    ref.rotation.z += bobRoll;
-    ref.rotation.x += bobPitch;
+    ref.rotation.z = baseRollRef.current + bobRoll;
+    ref.rotation.x = basePitchRef.current + bobPitch;
 
     if (anchorRef.current && isMoored) {
       anchorRef.current.rotation.z = Math.sin(t * 0.4) * 0.02;

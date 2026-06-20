@@ -1,7 +1,10 @@
 import WebSocket from "ws";
 
-console.log("Connecting to ws://localhost:8080...");
-const ws = new WebSocket("ws://localhost:8080");
+const proxyUrl =
+  process.env.PROXY_WS_URL || `ws://localhost:${process.env.PROXY_PORT || 8080}`;
+
+console.log(`Connecting to ${proxyUrl}...`);
+const ws = new WebSocket(proxyUrl);
 
 ws.on("open", () => {
   console.log(
@@ -10,8 +13,8 @@ ws.on("open", () => {
   const subscriptionMsg = {
     BoundingBoxes: [
       [
-        [-90, -180],
-        [90, 180],
+        [34.95, 128.95],
+        [35.2, 129.25],
       ],
     ],
   };

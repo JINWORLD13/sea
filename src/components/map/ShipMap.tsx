@@ -2,7 +2,7 @@
 // 船舶地図：海域内の船舶の位置と航跡を視覚化します。
 // Ship Map: Visualizes ship positions and paths in the region.
 import type { ReactElement, FC } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, memo, startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -19,10 +19,10 @@ import type { DivIcon } from "leaflet";
 import {
   useShipStore,
   matchShipQuery,
-  selectDisplayShips,
 } from "../../store/useShipStore";
 import type { ShipData } from "../../store/useShipStore";
 import { useTranslation } from "react-i18next";
+import { useShipSnapshot } from "../../hooks/useShipSnapshot";
 
 const MAX_RENDERED_SHIPS = 250;
 const iconCache = new Map<string, DivIcon>();
@@ -52,9 +52,8 @@ const createShipIcon = (
   riskSeverity?: string,
   inRestrictedZone?: boolean,
 ): DivIcon => {
-  const normalizedHeading = Math.round(heading / 5) * 5;
   const cacheKey = [
-    normalizedHeading,
+    heading,
     isSelected ? 1 : 0,
     shipType,
     riskSeverity || "",
@@ -100,7 +99,7 @@ const createShipIcon = (
   const innerIconSvg: string = `<path d="M12 7l4 10H8l4-10z" stroke="${color}" stroke-width="1.5" fill="${color}20" />`;
 
   const svgContentString: string = `
-    <div style="transform: rotate(${normalizedHeading}deg); width: ${size}px; height: ${size}px; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;">
+    <div style="transform: rotate(${heading}deg); width: ${size}px; height: ${size}px; display: flex; align-items: center; justify-content: center; transition: all 0.3s ease;">
       <svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" style="filter: drop-shadow(0 0 6px ${glow});">
         <circle cx="12" cy="12" r="1.5" fill="${color}" />
         <g opacity="0.7">
@@ -178,17 +177,27 @@ const AutoFitShips: FC<AutoFitShipsProps> = ({
 
 interface ViewportTrackerProps {
   onBoundsChange: (bounds: L.LatLngBounds) => void;
+  onInteractionChange: (isInteracting: boolean) => void;
 }
 
 const ViewportTracker: FC<ViewportTrackerProps> = ({
   onBoundsChange,
+  onInteractionChange,
 }): null => {
   const map = useMapEvents({
+    movestart: () => {
+      onInteractionChange(true);
+    },
+    zoomstart: () => {
+      onInteractionChange(true);
+    },
     moveend: () => {
       onBoundsChange(map.getBounds());
+      onInteractionChange(false);
     },
     zoomend: () => {
       onBoundsChange(map.getBounds());
+      onInteractionChange(false);
     },
   });
 
@@ -201,17 +210,50 @@ const ViewportTracker: FC<ViewportTrackerProps> = ({
 
 const ShipMap: FC = (): ReactElement => {
   const { t } = useTranslation();
-  const shipStore = useShipStore();
-  const ships = useShipStore(selectDisplayShips);
-  const selectedShipMmsi = shipStore.selectedShipMmsi;
-  const currentRegion = shipStore.currentRegion;
-  const mapCenterOverride = shipStore.mapCenterOverride;
-  const selectShip = shipStore.selectShip;
-  const searchQuery = shipStore.searchQuery;
-  const marinaMode = shipStore.marinaMode;
+  const selectedShipMmsi = useShipStore((state) => state.selectedShipMmsi);
+  const currentRegion = useShipStore((state) => state.currentRegion);
+  const mapCenterOverride = useShipStore((state) => state.mapCenterOverride);
+  const selectShip = useShipStore((state) => state.selectShip);
+  const searchQuery = useShipStore((state) => state.searchQuery);
+  const marinaMode = useShipStore((state) => state.marinaMode);
+  const streamStatus = useShipStore((state) => state.streamStatus);
   const [viewBounds, setViewBounds] = useState<L.LatLngBounds | null>(null);
+  const [isMapInteracting, setIsMapInteracting] = useState<boolean>(false);
+  const ships = useShipSnapshot({
+    pause: isMapInteracting,
+    delayMs: 700,
+    resumeDelayMs: 80,
+  });
+
+  const handleBoundsChange = useCallback((bounds: L.LatLngBounds): void => {
+    startTransition(() => {
+      setViewBounds(bounds);
+    });
+  }, []);
+
+  const handleInteractionChange = useCallback((isInteracting: boolean): void => {
+    setIsMapInteracting(isInteracting);
+  }, []);
 
   const shipsList = useMemo(() => Object.values(ships) as ShipData[], [ships]);
+  const statusText =
+    streamStatus.state === "error"
+      ? streamStatus.error || t("aisDisconnected")
+      : shipsList.length === 0
+        ? t("aisWaiting")
+        : t("streamingActive");
+  const statusColorClass =
+    streamStatus.state === "error"
+      ? "border-rose-500/30 text-rose-400"
+      : shipsList.length === 0
+        ? "border-amber-500/30 text-amber-400"
+        : "border-emerald-500/30 text-emerald-400";
+  const statusDotClass =
+    streamStatus.state === "error"
+      ? "bg-rose-500"
+      : shipsList.length === 0
+        ? "bg-amber-500"
+        : "bg-emerald-500";
   const filteredShips: ShipData[] = useMemo(() => {
     return shipsList.filter((shipItem: ShipData) => {
       const isSearchMatch: boolean = matchShipQuery(shipItem, searchQuery);
@@ -332,7 +374,10 @@ const ShipMap: FC = (): ReactElement => {
           regionId={mapCenterOverride ? "override" : currentRegion.id}
           zoom={mapZoom}
         />
-        <ViewportTracker onBoundsChange={setViewBounds} />
+        <ViewportTracker
+          onBoundsChange={handleBoundsChange}
+          onInteractionChange={handleInteractionChange}
+        />
         <AutoFitShips
           ships={renderShips}
           regionId={currentRegion.id}
@@ -351,7 +396,7 @@ const ShipMap: FC = (): ReactElement => {
           };
 
           return (
-            <div key={ship.id}>
+            <Fragment key={ship.id}>
               {isThisSelected === true && (
                 <CircleMarker
                   center={markerPos}
@@ -435,7 +480,7 @@ const ShipMap: FC = (): ReactElement => {
                   }}
                 />
               )}
-            </div>
+            </Fragment>
           );
         })}
       </MapContainer>
@@ -446,11 +491,17 @@ const ShipMap: FC = (): ReactElement => {
         Map Overlays
       */}
       <div className="absolute top-4 left-4 z-[1000] flex flex-col gap-2">
-        {Object.keys(ships).length === 0 && (
-          <div className="bg-black/80 backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border border-indigo-500/30 flex items-center gap-3 animate-pulse">
-            <div className="w-2.5 h-2.5 bg-indigo-500 rounded-full shadow-[0_0_8px_indigo]"></div>
-            <span className="text-xs font-black uppercase tracking-widest text-indigo-400">
-              {t("syncingAisFeed")}
+        {(shipsList.length === 0 || streamStatus.state === "error") && (
+          <div
+            className={`bg-black/80 backdrop-blur-md px-5 py-3 rounded-2xl shadow-2xl border flex items-center gap-3 ${statusColorClass}`}
+          >
+            <div
+              className={`w-2.5 h-2.5 rounded-full ${statusDotClass} ${
+                streamStatus.state === "error" ? "" : "animate-pulse"
+              }`}
+            ></div>
+            <span className="text-xs font-black uppercase tracking-widest">
+              {statusText}
             </span>
           </div>
         )}
@@ -462,7 +513,7 @@ const ShipMap: FC = (): ReactElement => {
             {t("vesselsDetected")}
           </span>
           <span className="font-black text-indigo-400 text-sm">
-            {renderShips.length}
+            {renderShips.length}/{filteredShips.length}
           </span>
         </div>
         <div className="w-full bg-white/5 h-1.5 rounded-full overflow-hidden mb-3">
@@ -473,9 +524,11 @@ const ShipMap: FC = (): ReactElement => {
         </div>
         <div className="flex items-center justify-between">
           <span className="text-xs text-emerald-500 font-mono tracking-tighter">
-            LIVE STREAMING
+            {streamStatus.state === "live"
+              ? "LIVE AIS"
+              : streamStatus.state.toUpperCase()}
           </span>
-          <div className="w-2 h-2 bg-emerald-500 rounded-full animate-ping" />
+          <div className={`w-2 h-2 ${statusDotClass} rounded-full animate-ping`} />
         </div>
       </div>
 
@@ -499,4 +552,4 @@ const ShipMap: FC = (): ReactElement => {
   return mapMarkup;
 };
 
-export default ShipMap;
+export default memo(ShipMap);

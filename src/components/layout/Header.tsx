@@ -7,22 +7,23 @@ import { Bell, Search, Menu, Anchor } from "lucide-react";
 import {
   useShipStore,
   matchShipQuery,
-  selectDisplayShips,
 } from "../../store/useShipStore";
 import type { ShipData } from "../../store/useShipStore";
 import { useTranslation } from "react-i18next";
+import { useShipSnapshot } from "../../hooks/useShipSnapshot";
 
 const SEARCH_DEBOUNCE_MS: number = 300;
 const MAX_AUTOCOMPLETE_ITEMS: number = 8;
 
 const Header: FC = (): ReactElement => {
   const { t } = useTranslation();
-  const shipStore = useShipStore();
-  const searchQuery: string = shipStore.searchQuery;
-  const setSearchQuery = shipStore.setSearchQuery;
-  const ships = useShipStore(selectDisplayShips);
-  const selectShip = shipStore.selectShip;
-  const setMapCenterOverride = shipStore.setMapCenterOverride;
+  const searchQuery: string = useShipStore((state) => state.searchQuery);
+  const setSearchQuery = useShipStore((state) => state.setSearchQuery);
+  const ships = useShipSnapshot({ delayMs: 1000 });
+  const selectShip = useShipStore((state) => state.selectShip);
+  const setMapCenterOverride = useShipStore(
+    (state) => state.setMapCenterOverride,
+  );
 
   const [inputValue, setInputValue] = useState<string>(searchQuery);
   const [isDropdownOpen, setIsDropdownOpen] = useState<boolean>(false);
@@ -40,7 +41,7 @@ const Header: FC = (): ReactElement => {
   // デバウンス処理された検索実行
   // Run search with debounce.
   useEffect(() => {
-    const timer: any = setTimeout(() => {
+    const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
       setSearchQuery(inputValue);
     }, SEARCH_DEBOUNCE_MS);
 

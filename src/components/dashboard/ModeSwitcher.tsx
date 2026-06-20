@@ -12,11 +12,32 @@ interface ModeSwitcherProps {
   t: (key: TranslationKey) => string;
 }
 
+// Tailwind JIT는 완전한 클래스 리터럴만 인식하므로 동적 보간 대신 정적 매핑을 쓴다.
+// Tailwind JIT only keeps complete literal class strings, so use a static map
+// instead of string interpolation (which gets purged → invisible styles).
+const ACTIVE_BTN_CLASS: Record<ModeId, string> = {
+  fleet:
+    "bg-indigo-500/10 border-indigo-500/50 text-indigo-400 shadow-[0_0_15px_rgba(99,102,241,0.2)]",
+  safety:
+    "bg-red-500/10 border-red-500/50 text-red-400 shadow-[0_0_15px_rgba(239,68,68,0.2)]",
+  marina:
+    "bg-violet-500/10 border-violet-500/50 text-violet-400 shadow-[0_0_15px_rgba(139,92,246,0.2)]",
+};
+const ACTIVE_ICON_CLASS: Record<ModeId, string> = {
+  fleet: "text-indigo-400",
+  safety: "text-red-400",
+  marina: "text-violet-400",
+};
+
 const ModeSwitcher = ({ platformMode, onSwitchMode, t }: ModeSwitcherProps) => {
-  const modes: { id: ModeId; icon: React.ReactNode; labelKey: string; color: string }[] = [
-    { id: "fleet", icon: <Anchor />, labelKey: "fleetMgr", color: "indigo" },
-    { id: "safety", icon: <ShieldAlert />, labelKey: "safetyRisk", color: "red" },
-    { id: "marina", icon: <Compass />, labelKey: "tourism", color: "violet" },
+  const modes: {
+    id: ModeId;
+    icon: React.ReactNode;
+    labelKey: TranslationKey;
+  }[] = [
+    { id: "fleet", icon: <Anchor />, labelKey: "fleetMgr" },
+    { id: "safety", icon: <ShieldAlert />, labelKey: "safetyRisk" },
+    { id: "marina", icon: <Compass />, labelKey: "tourism" },
   ];
 
   return (
@@ -25,12 +46,12 @@ const ModeSwitcher = ({ platformMode, onSwitchMode, t }: ModeSwitcherProps) => {
         let btnClass =
           "p-4 rounded-2xl flex items-center justify-center gap-3 transition-all border ";
         if (platformMode === m.id) {
-          btnClass += `bg-${m.color}-500/10 border-${m.color}-500/50 text-${m.color}-400 shadow-[0_0_15px_rgba(var(--${m.color}),0.2)]`;
+          btnClass += ACTIVE_BTN_CLASS[m.id];
         } else {
           btnClass += "glass-panel text-slate-400 border-white/5 hover:border-white/10";
         }
         let iconClass = "scale-90 ";
-        iconClass += platformMode === m.id ? `text-${m.color}-400` : "text-slate-600";
+        iconClass += platformMode === m.id ? ACTIVE_ICON_CLASS[m.id] : "text-slate-600";
         return (
           <button
             key={m.id}

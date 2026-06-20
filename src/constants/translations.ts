@@ -22,7 +22,7 @@ export const translations = {
     // region button
     regionBusan: "Busan",
     regionIncheon: "Incheon",
-    regionGlobal: "Global",
+    regionGlobal: "Singapore",
 
     // Dashboard stats / status
     activeFleet: "Active Fleet",
@@ -103,7 +103,7 @@ export const translations = {
     operatorShort: "OP",
 
     // Live Map
-    globalCoverageActive: "Global Coverage Active",
+    globalCoverageActive: "Selected Area Active",
 
     // Fleet Status page
     realtimeSyncActive: "Real-time Sync Active",
@@ -213,7 +213,7 @@ export const translations = {
     // 지역 버튼 (짧은 라벨)
     regionBusan: "부산",
     regionIncheon: "인천",
-    regionGlobal: "글로벌",
+    regionGlobal: "싱가포르",
 
     // 대시보드 통계/상태
     activeFleet: "활성 함대",
@@ -294,7 +294,7 @@ export const translations = {
     operatorShort: "OP",
 
     // 라이브 맵
-    globalCoverageActive: "글로벌 커버리지 활성",
+    globalCoverageActive: "선택 해역 활성",
 
     // 함대 상태 페이지
     realtimeSyncActive: "실시간 동기화 활성",

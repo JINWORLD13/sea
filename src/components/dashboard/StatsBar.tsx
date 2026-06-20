@@ -19,11 +19,20 @@ const StatsBar = ({
   t,
 }: StatsBarProps) => {
   const selectedMmsi = useShipStore((s) => s.selectedShipMmsi);
+  const streamStatus = useShipStore((s) => s.streamStatus);
 
   const handleShare = () => {
     const url = window.location.origin + "/?mmsi=" + (selectedMmsi || "");
-    navigator.clipboard.writeText(url);
-    alert(t("shareLinkCopied"));
+    // clipboard API는 비보안 컨텍스트/권한 거부 시 throw하거나 reject한다.
+    // clipboard API can throw (insecure context) or reject (denied); guard it.
+    const onCopied = () => alert(t("shareLinkCopied"));
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url).then(onCopied, () => {
+        window.prompt(t("shareLinkCopied"), url);
+      });
+    } else {
+      window.prompt(t("shareLinkCopied"), url);
+    }
   };
 
   const handleExport = () => {
@@ -39,7 +48,12 @@ const StatsBar = ({
     const a = document.createElement("a");
     a.href = link;
     a.download = "maritime_report.csv";
+    document.body.appendChild(a);
     a.click();
+    a.remove();
+    // 객체 URL을 즉시 해제해 메모리 누수를 막는다.
+    // Revoke the object URL so the blob is not leaked for the page lifetime.
+    window.URL.revokeObjectURL(link);
   };
 
   return (
@@ -80,7 +94,18 @@ const StatsBar = ({
           {t("export")}
         </button>
         <div className="text-xs font-mono text-slate-500">
-          {t("aisFeedLabel")}: <span className="text-emerald-500/50">{t("live")}</span>
+          {t("aisFeedLabel")}:{" "}
+          <span
+            className={
+              streamStatus.state === "error"
+                ? "text-rose-400"
+                : streamStatus.state === "live"
+                  ? "text-emerald-400"
+                  : "text-amber-400"
+            }
+          >
+            {streamStatus.state.toUpperCase()}
+          </span>
         </div>
       </div>
     </div>

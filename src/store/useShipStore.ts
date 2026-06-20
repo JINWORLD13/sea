@@ -1,6 +1,3 @@
-// 중앙 저장소: 선박 데이터를 총괄 관리합니다.
-// 船舶データを一括管理する中央ストレ이지.
-// Central store for managing all ship data.
 import { create } from "zustand";
 import {
   latLngToXY,
@@ -8,30 +5,26 @@ import {
   calculateCPA,
 } from "../utils/maritimeMath";
 
-// 선박 상세 정보 인터페이스
-// 船舶詳細情報のインターフェース
-// Interface for ship details.
+export type RegionBounds = [number, number, number, number];
+
 export interface ShipData {
-  id: string; // MMSI ID
-  name: string; // 선박 이름 (船名 / Ship Name)
-  type: string; // 선박 종류 (船種 / Ship Type)
-  position: { lat: number; lng: number }; // 현재 위치 (現在地 / Current Position)
-  heading: number; // 방향 (角度 / Heading)
-  speed: number; // 속도 (速度 / Speed)
-  fuel: number; // 연료 (燃料 / Fuel)
-  motion: { pitch: number; roll: number }; // 흔들림 (揺れ / Motion)
-  wind: { speed: number; direction: number }; // 바람 (風 / Wind)
-  path: { lat: number; lng: number }[]; // 항적 기록 (航跡 / Path History)
-  imo?: string; // 국제해사기구 번호 (IMO번호 / IMO Number)
-  destination?: string; // 목적지 (目的地 / Destination)
+  id: string;
+  name: string;
+  type: string;
+  position: { lat: number; lng: number };
+  heading: number;
+  speed: number;
+  fuel: number | null;
+  motion: { pitch: number; roll: number } | null;
+  wind: { speed: number; direction: number } | null;
+  path: { lat: number; lng: number }[];
+  imo?: string;
+  destination?: string;
   risk?: {
     cpaDistance: number;
     tcpa: number;
     severity: "safe" | "warning" | "danger";
   };
-  // 지오펜싱: 현재 부산 제한 수역 내 여부 (아이콘 색상용)
-  // ジオフェンシング：現在釜山制限水域内か（アイコン色用）
-  // Geofencing: whether currently inside Busan restricted zone (for icon color).
   inRestrictedZone?: boolean;
   alerts: {
     id: string;
@@ -39,36 +32,39 @@ export interface ShipData {
     severity: "low" | "medium" | "high";
     timestamp: number;
   }[];
-  // 분석용 데이터: 연료 효율 및 소비 기록
-  // 分析用データ：燃料効率および消費記録
-  // Analytics data: Fuel efficiency and consumption history.
   historicalData: {
     timestamp: number;
     fuel: number;
     efficiency: number;
   }[];
+  lastSeen?: number;
 }
 
-// 해역 정보 인터페이스
-// 海域情報インターフェース
-// Interface for region information.
-interface Region {
+export interface Region {
   id: "busan" | "incheon" | "singapore";
   name: string;
   center: [number, number];
-  bounds: [number, number, number, number];
+  bounds: RegionBounds;
 }
 
-// 업계 표준 업데이트 옵션 타입
-// 業界標準の更新オプション型
-// Industry standard update options type.
+export interface AisStreamStatus {
+  state: "idle" | "connecting" | "live" | "error";
+  error: string | null;
+  bounds: RegionBounds | null;
+  lastMessageAt: number | null;
+  receivedMessages: number;
+  droppedMessages: number;
+  trackedShipLimit: number;
+}
+
 interface UpdateOptions {
   skipPathRecord?: boolean;
 }
 
-// 스토어 인터페이스 정의
-// ストアインターフェースの定義
-// Store Interface Definition.
+type ShipPatch = Partial<Omit<ShipData, "id">> & {
+  id: string;
+};
+
 interface ShipStore {
   ships: Record<string, ShipData>;
   selectedShipMmsi: string | null;
@@ -79,7 +75,9 @@ interface ShipStore {
   searchQuery: string;
   mapCenterOverride: [number, number] | null;
   isConnected: boolean;
+  streamStatus: AisStreamStatus;
 
+  upsertShips: (updates: ShipPatch[]) => void;
   updateShip: (
     id: string,
     data: Partial<ShipData>,
@@ -95,182 +93,196 @@ interface ShipStore {
   setMapCenterOverride: (lat: number, lng: number) => void;
   checkRisks: () => void;
   ackAlert: (mmsi: string, alertId: string) => void;
-  tick: () => void;
+  pruneStaleShips: () => void;
 }
 
-// 해역 정보 데이터
-// 海域情報データ
-// Region Data.
+const MAX_TRACKED_SHIPS = 500;
+const MAX_PATH_POINTS = 50;
+const SHIP_STALE_MS = 20 * 60 * 1000;
+const AIS_FLUSH_INTERVAL_MS = 1000;
+const LOCAL_SHIP_CACHE_KEY = "vts:last-known-ais-ships:v1";
+const LOCAL_CACHE_TTL_MS = 10 * 60 * 1000;
+const LOCAL_CACHE_MAX_SHIPS = 500;
+const LOCAL_CACHE_PERSIST_DELAY_MS = 1500;
+
+const createInitialStreamStatus = (): AisStreamStatus => ({
+  state: "idle",
+  error: null,
+  bounds: null,
+  lastMessageAt: null,
+  receivedMessages: 0,
+  droppedMessages: 0,
+  trackedShipLimit: MAX_TRACKED_SHIPS,
+});
+
 const regions: Record<Region["id"], Region> = {
   busan: {
     id: "busan",
     name: "Busan Port",
     center: [35.1028, 129.0403],
-    bounds: [35.0, 128.9, 35.2, 129.2],
+    bounds: [34.95, 128.95, 35.2, 129.25],
   },
   incheon: {
     id: "incheon",
     name: "Incheon Port",
     center: [37.4563, 126.5841],
-    bounds: [37.3, 126.4, 37.6, 126.8],
+    bounds: [37.3, 126.35, 37.62, 126.82],
   },
   singapore: {
     id: "singapore",
-    name: "Global Area",
-    center: [1.2901, 103.8519],
-    bounds: [-90, -180, 90, 180],
+    name: "Singapore Strait",
+    center: [1.248, 103.84],
+    bounds: [1.12, 103.55, 1.35, 104.15],
   },
 };
 
-// 운항 가능 구역 (가상 시뮬레이션용) — 육지와 겹치지 않도록 해상만 사용
-// 航行可能区域（仮想シミュレーション用）
-// Navigable sea zones (for virtual simulation); kept strictly over water to avoid land.
-const seaZones: Record<
-  Region["id"],
-  { minLat: number; maxLat: number; minLng: number; maxLng: number }[]
-> = {
-  busan: [
-    { minLat: 34.96, maxLat: 35.03, minLng: 129.0, maxLng: 129.12 },
-    { minLat: 34.97, maxLat: 35.04, minLng: 129.08, maxLng: 129.16 },
-  ],
-  incheon: [{ minLat: 37.35, maxLat: 37.45, minLng: 126.45, maxLng: 126.65 }],
-  singapore: [{ minLat: 1.15, maxLat: 1.25, minLng: 103.65, maxLng: 103.95 }],
-};
-
-// 목적항(POD) 목록 — 구체적인 항구명
-// 目的港（POD）リスト — 具体的な港名
-// Port of Destination (POD) list — specific port names.
-const podPorts: string[] = [
-  "BUSAN (KR)",
-  "INCHEON (KR)",
-  "SINGAPORE (SG)",
-  "YOKOHAMA (JP)",
-  "SHANGHAI (CN)",
-  "KAOHSIUNG (TW)",
-  "QINGDAO (CN)",
-  "OSAKA (JP)",
-  "HONG KONG (HK)",
-  "NINGBO (CN)",
-];
-
-// 데모 선박 데이터 생성기
-// デモ船舶データの生成
-// Generator for demo ship data.
-const generateDemoShips = (
-  regionId: Region["id"],
-): Record<string, ShipData> => {
-  const demoShips: Record<string, ShipData> = {};
-  let countShips: number = 0;
-  if (regionId === "busan") {
-    countShips = 10;
-  } else {
-    countShips = 6;
-  }
-  const zonesList = seaZones[regionId];
-
-  for (let i = 0; i < countShips; i++) {
-    const zoneItem = zonesList[i % zonesList.length];
-    const idValue: string = "999" + regionId.substring(0, 1) + i;
-    const latPos: number =
-      zoneItem.minLat + Math.random() * (zoneItem.maxLat - zoneItem.minLat);
-    const lngPos: number =
-      zoneItem.minLng + Math.random() * (zoneItem.maxLng - zoneItem.minLng);
-
-    let shipTypeValue: string = "";
-    if (i % 3 === 0) {
-      shipTypeValue = "Cargo";
-    } else if (i % 3 === 1) {
-      shipTypeValue = "Tanker";
-    } else {
-      shipTypeValue = "Tug";
-    }
-
-    const currentFuel = 70 + Math.floor(Math.random() * 30);
-
-    demoShips[idValue] = {
-      id: idValue,
-      name: "DEMO_" + regionId.toUpperCase() + "_0" + (i + 1),
-      type: shipTypeValue,
-      position: { lat: latPos, lng: lngPos },
-      heading: Math.floor(Math.random() * 360),
-      speed: 3 + Math.random() * 12,
-      fuel: currentFuel,
-      motion: { pitch: 0.5, roll: 1.2 },
-      wind: { speed: 12, direction: 45 },
-      path: [{ lat: latPos, lng: lngPos }],
-      imo: "IMO" + (1000000 + i),
-      destination: podPorts[i % podPorts.length],
-      alerts: [],
-      historicalData: [
-        {
-          timestamp: Date.now(),
-          fuel: currentFuel,
-          efficiency: 0.8 + Math.random() * 0.2,
-        },
-      ],
-    };
-  }
-  return demoShips;
-};
-
-// 데모 선박 캐시: selectDisplayShips가 매번 새 객체를 반환하면 무한 리렌더 발생하므로 동일 region이면 같은 참조 반환
-// デモ船舶キャッシュ：selectDisplayShipsが毎回新オブジェクトを返すと無限リレンダーになるため同一regionでは同じ参照を返す
-// Demo ships cache: return same reference per region to avoid infinite re-renders from getSnapshot.
-let displayDemoCache: {
-  regionId: Region["id"];
-  ships: Record<string, ShipData>;
-} | null = null;
-
 export const selectDisplayShips = (
   state: ShipStore,
-): Record<string, ShipData> => {
-  if (Object.keys(state.ships).length > 0) return state.ships;
-  if (state.isConnected) return state.ships;
-  const regionId = state.currentRegion.id;
-  if (displayDemoCache && displayDemoCache.regionId === regionId) {
-    return displayDemoCache.ships;
-  }
-  displayDemoCache = {
-    regionId,
-    ships: generateDemoShips(regionId),
-  };
-  return displayDemoCache.ships;
-};
+): Record<string, ShipData> => state.ships;
 
-// 1단계: 모든 선박의 제한 수역(지오펜싱) 여부만 갱신
-// ステップ1：全船舶の制限水域（ジオフェンシング）の有無のみ更新
-// Step 1: Update only whether each ship is in restricted zone (geofencing).
+function isSamePosition(
+  left: { lat: number; lng: number } | undefined,
+  right: { lat: number; lng: number },
+): boolean {
+  return left?.lat === right.lat && left.lng === right.lng;
+}
+
+function buildMergedShip(
+  id: string,
+  existingData: ShipData | undefined,
+  data: Partial<ShipData>,
+): ShipData {
+  const position = data.position ?? existingData?.position ?? { lat: 0, lng: 0 };
+  const lastPathPoint = existingData?.path[existingData.path.length - 1];
+  const path =
+    data.position && !isSamePosition(lastPathPoint, data.position)
+      ? [...(existingData?.path ?? []), data.position].slice(-MAX_PATH_POINTS)
+      : (existingData?.path ?? (data.position ? [data.position] : []));
+
+  return {
+    id,
+    name: data.name ?? existingData?.name ?? "MMSI " + id,
+    type: data.type ?? existingData?.type ?? "AIS",
+    position,
+    heading: data.heading ?? existingData?.heading ?? 0,
+    speed: data.speed ?? existingData?.speed ?? 0,
+    fuel: data.fuel ?? existingData?.fuel ?? null,
+    motion: data.motion ?? existingData?.motion ?? null,
+    wind: data.wind ?? existingData?.wind ?? null,
+    path,
+    imo: data.imo ?? existingData?.imo,
+    destination: data.destination ?? existingData?.destination,
+    risk: data.risk ?? existingData?.risk,
+    inRestrictedZone: data.inRestrictedZone ?? existingData?.inRestrictedZone,
+    alerts: data.alerts ?? existingData?.alerts ?? [],
+    historicalData: data.historicalData ?? existingData?.historicalData ?? [],
+    lastSeen: data.lastSeen ?? existingData?.lastSeen ?? Date.now(),
+  };
+}
+
+function isShipInsideBounds(ship: ShipData, bounds: RegionBounds): boolean {
+  const { lat, lng } = ship.position;
+  return (
+    lat >= bounds[0] &&
+    lat <= bounds[2] &&
+    lng >= bounds[1] &&
+    lng <= bounds[3]
+  );
+}
+
+function canUseLocalCache(): boolean {
+  return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
+}
+
+function loadLocalShipCache(bounds: RegionBounds): Record<string, ShipData> {
+  if (!canUseLocalCache()) return {};
+
+  try {
+    const rawCache = window.localStorage.getItem(LOCAL_SHIP_CACHE_KEY);
+    if (!rawCache) return {};
+    const parsed = JSON.parse(rawCache) as {
+      ships?: ShipData[];
+      savedAt?: number;
+    };
+    const cachedShips = Array.isArray(parsed.ships) ? parsed.ships : [];
+    const now = Date.now();
+    const nextShips: Record<string, ShipData> = {};
+
+    for (const ship of cachedShips) {
+      const lastSeen = ship.lastSeen ?? parsed.savedAt ?? 0;
+      if (lastSeen <= 0 || now - lastSeen > LOCAL_CACHE_TTL_MS) continue;
+      if (!isShipInsideBounds(ship, bounds)) continue;
+      nextShips[ship.id] = {
+        ...ship,
+        lastSeen,
+      };
+    }
+
+    return nextShips;
+  } catch {
+    return {};
+  }
+}
+
+function persistLocalShipCache(
+  ships: Record<string, ShipData>,
+  bounds: RegionBounds | null,
+): void {
+  if (!bounds || !canUseLocalCache()) return;
+
+  try {
+    const now = Date.now();
+    const cachedShips = Object.values(ships)
+      .filter((ship) => {
+        const lastSeen = ship.lastSeen ?? 0;
+        return (
+          lastSeen > 0 &&
+          now - lastSeen <= LOCAL_CACHE_TTL_MS &&
+          isShipInsideBounds(ship, bounds)
+        );
+      })
+      .sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0))
+      .slice(0, LOCAL_CACHE_MAX_SHIPS);
+
+    window.localStorage.setItem(
+      LOCAL_SHIP_CACHE_KEY,
+      JSON.stringify({ savedAt: now, ships: cachedShips }),
+    );
+  } catch {
+    // Local storage can be disabled or full; live AIS still works without it.
+  }
+}
+
 function updateRestrictedZoneForAll(
   get: () => ShipStore,
   set: (fn: (state: ShipStore) => Partial<ShipStore>) => void,
 ): void {
   const state = get();
-  if (state.currentRegion.id === "busan") {
-    set((s) => {
-      const nextShips = { ...s.ships };
-      for (const id of Object.keys(nextShips)) {
-        const ship = nextShips[id];
-        const { lat, lng } = ship.position;
-        const inRestricted =
-          lat > 35.08 && lat < 35.1 && lng > 129.0 && lng < 129.05;
+  set((s) => {
+    const nextShips = { ...s.ships };
+    let changed = false;
+
+    for (const id of Object.keys(nextShips)) {
+      const ship = nextShips[id];
+      const { lat, lng } = ship.position;
+      const inRestricted =
+        state.currentRegion.id === "busan" &&
+        lat > 35.08 &&
+        lat < 35.1 &&
+        lng > 129.0 &&
+        lng < 129.05;
+
+      if (ship.inRestrictedZone !== inRestricted) {
         nextShips[id] = { ...ship, inRestrictedZone: inRestricted };
+        changed = true;
       }
-      return { ships: nextShips };
-    });
-  } else {
-    set((s) => {
-      const nextShips = { ...s.ships };
-      for (const id of Object.keys(nextShips)) {
-        nextShips[id] = { ...nextShips[id], inRestrictedZone: false };
-      }
-      return { ships: nextShips };
-    });
-  }
+    }
+
+    if (!changed) return {};
+    return { ships: nextShips };
+  });
 }
 
-// 2단계: 선택된 선박 기준으로 충돌 위험(CPA) 계산 + 부산 제한 수역 알림
-// ステップ2：選択船舶基準で衝突リスク（CPA）計算＋釜山制限区域アラート
-// Step 2: Calculate collision risk (CPA) for selected ship and add Busan zone alerts.
 function updateCollisionRisksForSelected(
   state: ShipStore,
   updateShip: ShipStore["updateShip"],
@@ -320,15 +332,13 @@ function updateCollisionRisksForSelected(
     );
 
     if (state.currentRegion.id === "busan") {
-      const lat = other.position.lat;
-      const lng = other.position.lng;
+      const { lat, lng } = other.position;
       const inRestricted =
         lat > 35.08 && lat < 35.1 && lng > 129.0 && lng < 129.05;
-      if (inRestricted === true) {
-        const hasGeoAlert = other.alerts.some(
-          (a) => a.id.indexOf("geo_") === 0,
-        );
-        if (hasGeoAlert === false) {
+
+      if (inRestricted) {
+        const hasGeoAlert = other.alerts.some((a) => a.id.startsWith("geo_"));
+        if (!hasGeoAlert) {
           updateShip(
             other.id,
             {
@@ -350,9 +360,6 @@ function updateCollisionRisksForSelected(
   }
 }
 
-// 스토어 본체 (Zustand)
-// ストア本体 (Zustand)
-// Main Store Instance (Zustand).
 export const useShipStore = create<ShipStore>((set, get) => {
   const storeInstance: ShipStore = {
     ships: {},
@@ -364,10 +371,67 @@ export const useShipStore = create<ShipStore>((set, get) => {
     searchQuery: "",
     mapCenterOverride: null,
     isConnected: false,
+    streamStatus: createInitialStreamStatus(),
 
-    // 선박 정보 업데이트 (updateShip)
-    // 船舶情報の更新
-    // Update ship data.
+    upsertShips: (updates: ShipPatch[]) => {
+      if (updates.length === 0) return;
+      set((state: ShipStore) => {
+        const now = Date.now();
+        const cutoff = now - SHIP_STALE_MS;
+        const nextShips = { ...state.ships };
+        let trackedCount = Object.keys(nextShips).length;
+        let droppedMessages = 0;
+        let changed = false;
+
+        for (const id of Object.keys(nextShips)) {
+          const ship = nextShips[id];
+          if (
+            id !== state.selectedShipMmsi &&
+            (ship.lastSeen ?? 0) > 0 &&
+            (ship.lastSeen ?? 0) < cutoff
+          ) {
+            delete nextShips[id];
+            trackedCount -= 1;
+            changed = true;
+          }
+        }
+
+        for (const update of updates) {
+          const existingData = nextShips[update.id];
+          if (existingData === undefined && trackedCount >= MAX_TRACKED_SHIPS) {
+            droppedMessages += 1;
+            continue;
+          }
+
+          nextShips[update.id] = buildMergedShip(update.id, existingData, {
+            ...update,
+            lastSeen: update.lastSeen ?? now,
+          });
+
+          if (existingData === undefined) {
+            trackedCount += 1;
+          }
+          changed = true;
+        }
+
+        if (!changed && droppedMessages === 0) return {};
+        return {
+          ships: changed ? nextShips : state.ships,
+          isConnected: true,
+          streamStatus: {
+            ...state.streamStatus,
+            state: "live",
+            error: null,
+            lastMessageAt: now,
+            receivedMessages:
+              state.streamStatus.receivedMessages + updates.length,
+            droppedMessages:
+              state.streamStatus.droppedMessages + droppedMessages,
+          },
+        };
+      });
+    },
+
     updateShip: (
       id: string,
       data: Partial<ShipData>,
@@ -375,278 +439,301 @@ export const useShipStore = create<ShipStore>((set, get) => {
     ) => {
       set((state: ShipStore) => {
         const existingData = state.ships[id];
-        if (existingData === undefined) {
-          const newShipObj: ShipData = {
-            id: id,
-            name: data.name || "Unknown",
-            type: data.type || "Commercial",
-            position: data.position || { lat: 0, lng: 0 },
-            heading: data.heading || 0,
-            speed: data.speed || 0,
-            fuel: data.fuel ?? 85,
-            motion: data.motion || { pitch: 0.5, roll: 1.2 },
-            wind: data.wind || { speed: 12, direction: 45 },
-            path: data.position ? [data.position] : [],
-            alerts: [],
-            historicalData: [],
-            ...data,
-          };
-          const newShipsMap = { ...state.ships };
-          newShipsMap[id] = newShipObj;
-          return { ships: newShipsMap };
-        }
+        const mergedData =
+          options?.skipPathRecord === true
+            ? {
+                ...buildMergedShip(id, existingData, data),
+                path: existingData?.path ?? data.path ?? [],
+              }
+            : buildMergedShip(id, existingData, data);
 
-        const updatedShipObj: ShipData = { ...existingData, ...data };
-        if (options?.skipPathRecord !== true && data.position !== undefined) {
-          const lastStoredPos = existingData.path[existingData.path.length - 1];
-          if (
-            lastStoredPos === undefined ||
-            lastStoredPos.lat !== data.position.lat ||
-            lastStoredPos.lng !== data.position.lng
-          ) {
-            updatedShipObj.path = [...existingData.path, data.position].slice(
-              -50,
-            );
-          }
-        }
-        const updatedShipsMap = { ...state.ships };
-        updatedShipsMap[id] = updatedShipObj;
-        return { ships: updatedShipsMap };
+        return {
+          ships: {
+            ...state.ships,
+            [id]: mergedData,
+          },
+        };
       });
     },
 
-    // 선박 선택 (selectShip)
-    // 船舶の選択
-    // Select a ship.
     selectShip: (mmsi: string | null) => {
       set({ selectedShipMmsi: mmsi });
     },
 
-    // 해역 변경 (setRegion)
-    // 海域の設定
-    // Set current region.
     setRegion: (id: Region["id"]) => {
       const regionData = regions[id];
-      displayDemoCache = null;
-      set({ currentRegion: regionData, ships: {} });
+      set({
+        currentRegion: regionData,
+        ships: {},
+        selectedShipMmsi: null,
+        mapCenterOverride: null,
+      });
     },
 
-    // 함대에 추가 (addToFleet)
-    // 艦隊への追加
-    // Add to fleet.
     addToFleet: (mmsi: string) => {
-      const fleetList: string[] = get().fleetMmsis;
-      if (fleetList.indexOf(mmsi) === -1) {
+      const fleetList = get().fleetMmsis;
+      if (!fleetList.includes(mmsi)) {
         set({ fleetMmsis: [...fleetList, mmsi] });
       }
     },
 
-    // 함대에서 제거 (removeFromFleet)
-    // 艦隊からの削除
-    // Remove from fleet.
     removeFromFleet: (mmsi: string) => {
-      set((state: ShipStore) => {
-        const filteredList: string[] = state.fleetMmsis.filter((id: string) => {
-          const isNotMatch: boolean = id !== mmsi;
-          return isNotMatch;
-        });
-        return { fleetMmsis: filteredList };
-      });
+      set((state: ShipStore) => ({
+        fleetMmsis: state.fleetMmsis.filter((id: string) => id !== mmsi),
+      }));
     },
 
-    // 함대 모드 설정 (setFleetMode)
-    // 艦隊モードの設定
-    // Set fleet mode.
     setFleetMode: (active: boolean) => {
       set({ activeFleetOnly: active });
     },
 
-    // 마리나 모드 설정 (setMarinaMode)
-    // マリーナモードの設定
-    // Set marina mode.
     setMarinaMode: (active: boolean) => {
       set({ marinaMode: active });
     },
 
-    // 검색 쿼리 설정 (setSearchQuery)
-    // 検索クエリの設定
-    // Set search query.
     setSearchQuery: (query: string) => {
       set({ searchQuery: query });
     },
 
-    // 지도 중앙 오버라이드 (선박 선택 시 해당 위치로 지도 이동)
-    // 地図中心のオーバーライド（船舶選択時にその位置へ地図移動）
-    // Map center override (move map to ship position when selected).
     setMapCenterOverride: (lat: number, lng: number) => {
       set({ mapCenterOverride: [lat, lng] });
     },
 
-    // 충돌 위험 체크: 1) 지오펜싱 갱신 2) CPA 계산 및 알림
-    // 衝突リスクチェック：1)ジオフェンシング更新 2)CPA計算とアラート
-    // Check risks: 1) update geofencing 2) CPA and alerts.
     checkRisks: () => {
       updateRestrictedZoneForAll(get, set);
-      const state = get();
-      updateCollisionRisksForSelected(state, storeInstance.updateShip);
+      updateCollisionRisksForSelected(get(), storeInstance.updateShip);
     },
 
-    // 알림 확인 (ackAlert)
-    // アラートの確認
-    // Acknowledge an alert.
     ackAlert: (mmsi: string, alertId: string) => {
       set((state: ShipStore) => {
         const targetShip = state.ships[mmsi];
-        if (targetShip === undefined) {
-          return state;
-        }
-        const updatedAlerts = targetShip.alerts.filter((a) => {
-          const isNotTargetAlert: boolean = a.id !== alertId;
-          return isNotTargetAlert;
-        });
-        const shipWithAckedAlert: ShipData = {
-          ...targetShip,
-          alerts: updatedAlerts,
-        };
-        const newShipsMap = { ...state.ships };
-        newShipsMap[mmsi] = shipWithAckedAlert;
+        if (targetShip === undefined) return {};
+
         return {
-          ships: newShipsMap,
+          ships: {
+            ...state.ships,
+            [mmsi]: {
+              ...targetShip,
+              alerts: targetShip.alerts.filter((a) => a.id !== alertId),
+            },
+          },
         };
       });
     },
 
-    // 실시간 시뮬레이션 틱 (위치 이동 → 해역 체크 → 연료·히스토리)
-    // リアルタイムシミュレーションティック（位置移動→海域チェック→燃料・履歴）
-    // Simulation tick: move position, check sea bounds, then fuel & history.
-    tick: () => {
-      const state = get();
-      const regionId = state.currentRegion.id;
-      const zones = seaZones[regionId];
-      set((s: ShipStore) => {
-        const nextShips = { ...s.ships };
+    pruneStaleShips: () => {
+      set((state: ShipStore) => {
+        const cutoff = Date.now() - SHIP_STALE_MS;
+        const nextShips: Record<string, ShipData> = {};
         let changed = false;
-        const entries = Object.entries(nextShips);
-        for (let i = 0; i < entries.length; i++) {
-          const id = entries[i][0];
-          const ship = entries[i][1];
-          if (id.indexOf("999") !== 0) continue;
 
-          // 1) 속도로 다음 위치 계산
-          // 1) 速度で次位置を計算
-          // 1) Compute next position from speed.
-          const moveDelta = ship.speed * 0.000005;
-          const headingRad = (ship.heading - 90) * (Math.PI / 180);
-          const nextLat = ship.position.lat + Math.cos(headingRad) * moveDelta;
-          const nextLng = ship.position.lng + Math.sin(headingRad) * moveDelta;
+        for (const [id, ship] of Object.entries(state.ships)) {
+          const shouldKeep =
+            id === state.selectedShipMmsi ||
+            (ship.lastSeen ?? 0) === 0 ||
+            (ship.lastSeen ?? 0) >= cutoff;
 
-          // 2) 해역 안인지 체크 (밖이면 방향만 반대로)
-          // 2) 海域内かチェック（外なら向きだけ反転）
-          // 2) Check if still in sea (if not, just flip heading).
-          let inSea = false;
-          for (let j = 0; j < zones.length; j++) {
-            const z = zones[j];
-            if (
-              nextLat >= z.minLat &&
-              nextLat <= z.maxLat &&
-              nextLng >= z.minLng &&
-              nextLng <= z.maxLng
-            ) {
-              inSea = true;
-              break;
-            }
-          }
-          if (inSea === false) {
-            nextShips[id] = { ...ship, heading: (ship.heading + 180) % 360 };
+          if (shouldKeep) {
+            nextShips[id] = ship;
+          } else {
             changed = true;
-            continue;
           }
-
-          // 3) 연료 소모·히스토리 기록
-          // 3) 燃料消費・履歴記録
-          // 3) Fuel consumption and history.
-          const fuelConsumption = (ship.speed / 20) * 0.01;
-          const nextFuel = Math.max(0, ship.fuel - fuelConsumption);
-          const eff = 0.8 + (Math.random() * 0.2 - 0.1);
-          let nextHistory = ship.historicalData || [];
-          if (Math.random() > 0.8) {
-            nextHistory = [
-              ...nextHistory,
-              { timestamp: Date.now(), fuel: nextFuel, efficiency: eff },
-            ].slice(-30);
-          }
-
-          nextShips[id] = {
-            ...ship,
-            position: { lat: nextLat, lng: nextLng },
-            fuel: nextFuel,
-            path: [...ship.path, { lat: nextLat, lng: nextLng }].slice(-20),
-            historicalData: nextHistory,
-          };
-          changed = true;
         }
-        if (changed) return { ships: nextShips };
-        return s;
+
+        if (!changed) return {};
+        return { ships: nextShips };
       });
     },
   };
   return storeInstance;
 });
 
-// 검색용 매칭 함수
-// 検索用マッチング関数
-// Matching function for search.
 export const matchShipQuery = (ship: ShipData, query: string): boolean => {
-  if (query === "") {
-    return true;
-  }
-  const queryLower: string = query.toLowerCase();
-  const nameIncluded: boolean =
-    ship.name.toLowerCase().indexOf(queryLower) !== -1;
-  const mmsiIncluded: boolean =
-    ship.id.toLowerCase().indexOf(queryLower) !== -1;
-  const typeIncluded: boolean =
-    ship.type.toLowerCase().indexOf(queryLower) !== -1;
-
-  if (nameIncluded === true || mmsiIncluded === true || typeIncluded === true) {
-    return true;
-  } else {
-    return false;
-  }
+  if (query === "") return true;
+  const queryLower = query.toLowerCase();
+  return (
+    ship.name.toLowerCase().includes(queryLower) ||
+    ship.id.toLowerCase().includes(queryLower) ||
+    ship.type.toLowerCase().includes(queryLower) ||
+    (ship.destination ?? "").toLowerCase().includes(queryLower)
+  );
 };
 
 let activeSocket: WebSocket | null = null;
-let pendingClose = false;
+let activeBounds: RegionBounds | null = null;
+let pendingFlushTimer: ReturnType<typeof setTimeout> | null = null;
+let pendingCachePersistTimer: ReturnType<typeof setTimeout> | null = null;
 let debugAisMessageCount = 0;
+let hasFlushedSinceConnect = false;
+const pendingShipUpdates = new Map<string, ShipPatch>();
+
+interface AisPositionPayload {
+  Latitude?: unknown;
+  Longitude?: unknown;
+  Sog?: unknown;
+  TrueHeading?: unknown;
+  Cog?: unknown;
+  COG?: unknown;
+}
+
+interface RawAisMessage {
+  error?: string;
+  message?: string;
+  MetaData?: {
+    MMSI?: unknown;
+    ShipName?: unknown;
+  };
+  Message?: Record<string, AisPositionPayload | Record<string, unknown>>;
+  MessageType?: string;
+}
 
 const getProxyWsUrl = (): string => {
   const url = import.meta.env.VITE_PROXY_WS_URL;
   if (url && typeof url === "string") return url;
-  // API key flows via proxy; in production use HTTPS so client connects with wss://
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = import.meta.env.VITE_PROXY_HOST || window.location.hostname;
   const port = import.meta.env.VITE_PROXY_PORT || "8080";
   return `${protocol}//${host}:${port}`;
 };
 
-export const startAisStream = (
-  bounds: [number, number, number, number],
-): void => {
-  if (activeSocket !== null) {
-    activeSocket.close();
+const toNumber = (value: unknown): number | null => {
+  if (typeof value !== "number" || Number.isNaN(value)) return null;
+  return value;
+};
+
+const normalizeHeading = (value: unknown): number | null => {
+  const num = toNumber(value);
+  if (num === null || num < 0 || num >= 360) return null;
+  return Math.round(num);
+};
+
+const normalizeSog = (value: unknown): number => {
+  const num = toNumber(value);
+  if (num === null || num < 0 || num >= 102.3) return 0;
+  return num;
+};
+
+const isWithinBounds = (lat: number, lng: number, bounds: RegionBounds): boolean =>
+  lat >= bounds[0] &&
+  lat <= bounds[2] &&
+  lng >= bounds[1] &&
+  lng <= bounds[3];
+
+const extractPositionPayload = (
+  message: RawAisMessage["Message"],
+): AisPositionPayload | null => {
+  if (!message) return null;
+  const candidates = Object.values(message);
+  for (const candidate of candidates) {
+    if (candidate && typeof candidate === "object") {
+      const payload = candidate as AisPositionPayload;
+      if (
+        typeof payload.Latitude === "number" &&
+        typeof payload.Longitude === "number"
+      ) {
+        return payload;
+      }
+    }
   }
-  pendingClose = false;
+  return null;
+};
+
+const clearPendingUpdates = (): void => {
+  if (pendingFlushTimer !== null) {
+    clearTimeout(pendingFlushTimer);
+    pendingFlushTimer = null;
+  }
+  if (pendingCachePersistTimer !== null) {
+    clearTimeout(pendingCachePersistTimer);
+    persistLocalShipCache(useShipStore.getState().ships, activeBounds);
+    pendingCachePersistTimer = null;
+  }
+  pendingShipUpdates.clear();
+};
+
+const flushPendingShipUpdates = (): void => {
+  pendingFlushTimer = null;
+  const updates = Array.from(pendingShipUpdates.values());
+  pendingShipUpdates.clear();
+  if (updates.length > 0) {
+    useShipStore.getState().upsertShips(updates);
+    scheduleLocalCachePersist();
+  }
+};
+
+const scheduleLocalCachePersist = (): void => {
+  if (pendingCachePersistTimer !== null) {
+    clearTimeout(pendingCachePersistTimer);
+  }
+
+  pendingCachePersistTimer = setTimeout(() => {
+    pendingCachePersistTimer = null;
+    persistLocalShipCache(useShipStore.getState().ships, activeBounds);
+  }, LOCAL_CACHE_PERSIST_DELAY_MS);
+};
+
+const scheduleFlush = (): void => {
+  if (pendingFlushTimer !== null) return;
+  // 접속 직후 첫 배치(서버 캐시 스냅샷)는 즉시 그려 초기 로딩을 빠르게.
+  // 이후에는 1초 간격으로 묶어 렌더 부하를 줄인다.
+  // Paint the first batch (server cache snapshot) right away for a fast
+  // initial load, then settle into the 1s batching cadence.
+  const delay = hasFlushedSinceConnect ? AIS_FLUSH_INTERVAL_MS : 0;
+  hasFlushedSinceConnect = true;
+  pendingFlushTimer = setTimeout(flushPendingShipUpdates, delay);
+};
+
+const markStreamError = (error: string): void => {
+  useShipStore.setState((state) => ({
+    isConnected: false,
+    streamStatus: {
+      ...state.streamStatus,
+      state: "error",
+      error,
+    },
+  }));
+};
+
+export const startAisStream = (bounds: RegionBounds): void => {
+  const previousSocket = activeSocket;
+  activeSocket = null;
+  if (previousSocket !== null) {
+    previousSocket.close(1000, "resubscribe");
+  }
+
+  clearPendingUpdates();
+  activeBounds = bounds;
   debugAisMessageCount = 0;
-  activeSocket = new WebSocket(getProxyWsUrl());
-  activeSocket.onopen = () => {
-    console.log("[AIS] Proxy websocket connected");
-    if (pendingClose && activeSocket) {
-      activeSocket.close();
-      activeSocket = null;
+  hasFlushedSinceConnect = false;
+  const cachedShips = loadLocalShipCache(bounds);
+  useShipStore.setState({
+    ships: cachedShips,
+    isConnected: false,
+    streamStatus: {
+      ...createInitialStreamStatus(),
+      state: "connecting",
+      bounds,
+    },
+  });
+
+  const socket = new WebSocket(getProxyWsUrl());
+  activeSocket = socket;
+
+  socket.onopen = () => {
+    if (activeSocket !== socket) {
+      socket.close(1000, "stale socket");
       return;
     }
-    useShipStore.setState({ isConnected: true, ships: {} });
-    // AISStream expects [lat, lng] per point: [[minLat, minLng], [maxLat, maxLng]]
+
+    useShipStore.setState((state) => ({
+      isConnected: true,
+      streamStatus: {
+        ...state.streamStatus,
+        state: "connecting",
+        error: null,
+      },
+    }));
+
     const subscriptionMsg = {
       BoundingBoxes: [
         [
@@ -655,112 +742,105 @@ export const startAisStream = (
         ],
       ],
     };
-    const doSend = (): void => {
-      if (activeSocket?.readyState === WebSocket.OPEN) {
-        activeSocket.send(JSON.stringify(subscriptionMsg));
-      } else if (activeSocket?.readyState === WebSocket.CONNECTING) {
-        setTimeout(doSend, 10);
-      }
-    };
-    doSend();
+    socket.send(JSON.stringify(subscriptionMsg));
   };
-  activeSocket.onmessage = (event: MessageEvent) => {
-    let rawData: {
-      error?: string;
-      MetaData?: { MMSI?: unknown; ShipName?: string };
-      Message?: {
-        PositionReport?: {
-          Latitude?: number;
-          Longitude?: number;
-          Sog?: number;
-          TrueHeading?: number;
-        };
-      };
-      MessageType?: string;
-    };
+
+  socket.onmessage = (event: MessageEvent) => {
+    let rawData: RawAisMessage;
     try {
-      rawData = JSON.parse(event.data as string);
+      rawData = JSON.parse(event.data as string) as RawAisMessage;
     } catch {
       return;
     }
-    if (rawData.error === "API_KEY_MISSING") {
-      console.error("[AIS] Proxy reported missing API key");
-      useShipStore.setState({ isConnected: false });
+
+    if (rawData.error) {
+      markStreamError(rawData.message ?? rawData.error);
       return;
-    }
-    if (rawData.MetaData === undefined || rawData.Message === undefined) {
-      return;
-    }
-    const currentMmsi: string = String(rawData.MetaData.MMSI ?? "");
-    if (!currentMmsi) return;
-    let shipNameStr: string = "";
-    if (rawData.MetaData.ShipName) {
-      shipNameStr = rawData.MetaData.ShipName.trim();
-    } else {
-      shipNameStr = "Ship " + currentMmsi;
     }
 
-    if (rawData.MessageType === "PositionReport") {
-      const positionReport = rawData.Message.PositionReport;
-      if (
-        positionReport == null ||
-        typeof positionReport.Latitude !== "number" ||
-        typeof positionReport.Longitude !== "number"
-      ) {
-        return;
-      }
-      const shipStoreState: ShipStore = useShipStore.getState();
-      shipStoreState.updateShip(currentMmsi, {
-        name: shipNameStr,
-        position: {
-          lat: positionReport.Latitude,
-          lng: positionReport.Longitude,
-        },
-        speed: typeof positionReport.Sog === "number" ? positionReport.Sog : 0,
-        heading:
-          typeof positionReport.TrueHeading === "number"
-            ? positionReport.TrueHeading
-            : 0,
+    const positionReport = extractPositionPayload(rawData.Message);
+    if (positionReport === null) return;
+
+    const lat = toNumber(positionReport.Latitude);
+    const lng = toNumber(positionReport.Longitude);
+    if (lat === null || lng === null) return;
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) return;
+    if (activeBounds !== null && !isWithinBounds(lat, lng, activeBounds)) {
+      return;
+    }
+
+    const currentMmsi = String(rawData.MetaData?.MMSI ?? "").trim();
+    if (!currentMmsi) return;
+
+    const rawShipName = rawData.MetaData?.ShipName;
+    const shipName =
+      typeof rawShipName === "string" && rawShipName.trim().length > 0
+        ? rawShipName.trim()
+        : "MMSI " + currentMmsi;
+
+    const heading =
+      normalizeHeading(positionReport.TrueHeading) ??
+      normalizeHeading(positionReport.Cog) ??
+      normalizeHeading(positionReport.COG) ??
+      0;
+
+    pendingShipUpdates.set(currentMmsi, {
+      id: currentMmsi,
+      name: shipName,
+      type: "AIS",
+      position: { lat, lng },
+      speed: normalizeSog(positionReport.Sog),
+      heading,
+      lastSeen: Date.now(),
+    });
+    scheduleFlush();
+
+    if (debugAisMessageCount < 5) {
+      debugAisMessageCount += 1;
+      console.log("[AIS] Position update received", {
+        count: debugAisMessageCount,
+        mmsi: currentMmsi,
+        shipName,
+        lat,
+        lng,
       });
-      if (debugAisMessageCount < 5) {
-        debugAisMessageCount += 1;
-        console.log("[AIS] PositionReport received", {
-          count: debugAisMessageCount,
-          mmsi: currentMmsi,
-          shipName: shipNameStr,
-          lat: positionReport.Latitude,
-          lng: positionReport.Longitude,
-          sog: positionReport.Sog,
-          heading: positionReport.TrueHeading,
-        });
-      }
     }
   };
-  activeSocket.onerror = (event) => {
-    console.error("[AIS] WebSocket error", event);
-    useShipStore.setState({ isConnected: false });
+
+  socket.onerror = () => {
+    if (activeSocket === socket) {
+      markStreamError("AIS proxy websocket error");
+    }
   };
-  activeSocket.onclose = (event) => {
-    console.log("[AIS] Proxy websocket closed", {
-      code: event.code,
-      reason: event.reason,
-    });
+
+  socket.onclose = (event) => {
+    if (activeSocket !== socket) return;
     activeSocket = null;
-    useShipStore.setState({ isConnected: false });
+    clearPendingUpdates();
+    useShipStore.setState((state) => ({
+      isConnected: false,
+      streamStatus: {
+        ...state.streamStatus,
+        state: event.code === 1000 ? "idle" : "error",
+        error:
+          event.code === 1000
+            ? null
+            : `AIS proxy closed (${event.code || "unknown"})`,
+      },
+    }));
   };
 };
 
-// AIS 스트림 정지 (stopAisStream)
-// AISストリームの停止
-// Stop AIS stream.
 export const stopAisStream = (): void => {
-  if (activeSocket !== null) {
-    if (activeSocket.readyState === WebSocket.CONNECTING) {
-      pendingClose = true;
-    } else {
-      activeSocket.close();
-    }
-    activeSocket = null;
+  const socket = activeSocket;
+  activeSocket = null;
+  activeBounds = null;
+  clearPendingUpdates();
+  if (socket !== null) {
+    socket.close(1000, "client stop");
   }
-  useShipStore.setState({ isConnected: false });
+  useShipStore.setState({
+    isConnected: false,
+    streamStatus: createInitialStreamStatus(),
+  });
 };

@@ -4,26 +4,35 @@
 import { type ReactElement, type FC } from "react";
 import { BarChart, TrendingUp, Zap } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { useShipStore, selectDisplayShips } from "../store/useShipStore";
+import { useShipSnapshot } from "../hooks/useShipSnapshot";
 
 const Analytics: FC = (): ReactElement => {
   const { t } = useTranslation();
-  const ships = useShipStore(selectDisplayShips);
+  const ships = useShipSnapshot({ delayMs: 1200 });
 
   const shipList = Object.values(ships);
+  const fuelSamples = shipList.filter(
+    (ship) => typeof ship.fuel === "number",
+  );
+  const efficiencySamples = shipList
+    .map((ship) => ship.historicalData?.[ship.historicalData.length - 1])
+    .filter(
+      (sample): sample is { timestamp: number; fuel: number; efficiency: number } =>
+        typeof sample?.efficiency === "number",
+    );
 
-  // 평균 연료 잔량 계산
-  // 平均燃料残量の計算
-  // Calculate average fuel level.
   const avgFuel =
-    shipList.length > 0
-      ? shipList.reduce((acc, s) => acc + s.fuel, 0) / shipList.length
-      : 0;
+    fuelSamples.length > 0
+      ? fuelSamples.reduce((acc, ship) => acc + (ship.fuel ?? 0), 0) /
+        fuelSamples.length
+      : null;
 
-  // 운영 효율 점수 (데모용 고정값)
-  // 運用効率スコア（デモ用固定値）
-  // Operational efficiency score (fixed value for demo).
-  const avgEfficiency = 88.4;
+  const avgEfficiency =
+    efficiencySamples.length > 0
+      ? (efficiencySamples.reduce((acc, sample) => acc + sample.efficiency, 0) /
+          efficiencySamples.length) *
+        100
+      : null;
 
   /**
    * [KO]
@@ -77,12 +86,12 @@ const Analytics: FC = (): ReactElement => {
             </h4>
           </div>
           <p className="text-3xl font-black text-slate-800">
-            {avgFuel.toFixed(1)}%
+            {avgFuel !== null ? `${avgFuel.toFixed(1)}%` : "N/A"}
           </p>
           <div className="mt-4 w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <div
               className="h-full bg-indigo-500"
-              style={{ width: `${avgFuel}%` }}
+              style={{ width: `${avgFuel ?? 0}%` }}
             />
           </div>
         </div>
@@ -96,10 +105,14 @@ const Analytics: FC = (): ReactElement => {
               {t("operationalEfficiency")}
             </h4>
           </div>
-          <p className="text-3xl font-black text-slate-800">{avgEfficiency}%</p>
-          <p className="text-xs text-emerald-500 font-bold mt-1">
-            {t("fromYesterday")}
+          <p className="text-3xl font-black text-slate-800">
+            {avgEfficiency !== null ? `${avgEfficiency.toFixed(1)}%` : "N/A"}
           </p>
+          {avgEfficiency !== null && (
+            <p className="text-xs text-emerald-500 font-bold mt-1">
+              {t("fromYesterday")}
+            </p>
+          )}
         </div>
 
         <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
@@ -111,7 +124,7 @@ const Analytics: FC = (): ReactElement => {
               {t("estCo2Reduction")}
             </h4>
           </div>
-          <p className="text-3xl font-black text-slate-800">14.2t</p>
+          <p className="text-3xl font-black text-slate-800">N/A</p>
           <p className="text-xs text-slate-400 mt-1">
             {t("totalFleetSavings")}
           </p>
@@ -130,24 +143,30 @@ const Analytics: FC = (): ReactElement => {
             {t("fuelUsage")} Trend
           </h3>
           <div className="h-64 flex items-end justify-between gap-1 px-4">
-            {shipList.map((ship, idx) => (
-              <div
-                key={ship.id}
-                className="flex-1 flex flex-col items-center gap-2 group relative"
-              >
-                <div
-                  className="w-full bg-indigo-400/20 group-hover:bg-indigo-500 transition-all rounded-t-lg relative"
-                  style={{ height: `${ship.fuel}%` }}
-                >
-                  <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap">
-                    {ship.name}: {ship.fuel.toFixed(1)}%
-                  </div>
-                </div>
-                <span className="text-[10px] font-bold text-slate-300 truncate w-full text-center">
-                  V{idx + 1}
-                </span>
+            {fuelSamples.length === 0 ? (
+              <div className="w-full h-full flex items-center justify-center text-xs font-bold uppercase tracking-widest text-slate-400">
+                AIS feed does not include fuel telemetry
               </div>
-            ))}
+            ) : (
+              fuelSamples.map((ship, idx) => (
+                <div
+                  key={ship.id}
+                  className="flex-1 flex flex-col items-center gap-2 group relative"
+                >
+                  <div
+                    className="w-full bg-indigo-400/20 group-hover:bg-indigo-500 transition-all rounded-t-lg relative"
+                    style={{ height: `${ship.fuel ?? 0}%` }}
+                  >
+                    <div className="absolute -top-8 left-1/2 -translate-x-1/2 bg-slate-800 text-white text-[10px] px-2 py-1 rounded opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity whitespace-nowrap">
+                      {ship.name}: {(ship.fuel ?? 0).toFixed(1)}%
+                    </div>
+                  </div>
+                  <span className="text-[10px] font-bold text-slate-300 truncate w-full text-center">
+                    V{idx + 1}
+                  </span>
+                </div>
+              ))
+            )}
           </div>
           <div className="mt-8 pt-6 border-t border-slate-50 flex justify-between text-xs text-slate-400">
             <span>{t("currentFleetSnapshots")}</span>
@@ -166,25 +185,34 @@ const Analytics: FC = (): ReactElement => {
             {t("efficiency")} distribution
           </h3>
           <div className="space-y-4">
-            {shipList.slice(0, 6).map((ship) => {
-              const eff =
-                (ship.historicalData?.[ship.historicalData.length - 1]
-                  ?.efficiency || 0.85) * 100;
-              return (
-                <div key={ship.id} className="space-y-1">
-                  <div className="flex justify-between text-xs font-bold">
-                    <span className="text-slate-600">{ship.name}</span>
-                    <span className="text-emerald-500">{eff.toFixed(1)}%</span>
+            {efficiencySamples.length === 0 ? (
+              <div className="h-32 flex items-center justify-center text-xs font-bold uppercase tracking-widest text-slate-400">
+                Efficiency requires engine/sensor telemetry
+              </div>
+            ) : (
+              shipList.slice(0, 6).map((ship) => {
+                const latest =
+                  ship.historicalData?.[ship.historicalData.length - 1];
+                if (!latest) return null;
+                const eff = latest.efficiency * 100;
+                return (
+                  <div key={ship.id} className="space-y-1">
+                    <div className="flex justify-between text-xs font-bold">
+                      <span className="text-slate-600">{ship.name}</span>
+                      <span className="text-emerald-500">
+                        {eff.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="w-full h-2 bg-slate-50 rounded-full overflow-hidden border border-slate-100">
+                      <div
+                        className="h-full bg-emerald-400 transition-all duration-1000"
+                        style={{ width: `${eff}%` }}
+                      />
+                    </div>
                   </div>
-                  <div className="w-full h-2 bg-slate-50 rounded-full overflow-hidden border border-slate-100">
-                    <div
-                      className="h-full bg-emerald-400 transition-all duration-1000"
-                      style={{ width: `${eff}%` }}
-                    />
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })
+            )}
           </div>
           <div className="mt-12 bg-slate-50 p-4 rounded-xl border border-slate-100">
             <p className="text-[11px] text-slate-500 leading-relaxed font-medium">

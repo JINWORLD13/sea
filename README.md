@@ -146,7 +146,7 @@ All use of the AIS API key is over secure channels only:
 - **Solution**:
   - **Viewport-based rendering**: Render only vessels inside the current map bounds.
   - **Render cap**: Limit rendered vessels per frame (`MAX_RENDERED_SHIPS`) and prioritize ships near the current focus.
-  - **Icon cache optimization**: Cache `DivIcon` instances and quantize heading (5-degree buckets) to reduce icon regeneration overhead.
+  - **Icon cache optimization**: Cache `DivIcon` instances to reduce icon regeneration overhead while preserving real heading rotation.
   - **Auto-focus behavior tuning**: Keep one-time initial fit (`fitBounds`), but skip forced recenter during manual focus/selection flows.
 
 ## 🚀 Future Roadmap

@@ -4,7 +4,8 @@
 import { Suspense, useRef, useState, useEffect } from "react";
 import { Canvas } from "@react-three/fiber";
 import { OrbitControls } from "@react-three/drei";
-import { useShipStore, selectDisplayShips } from "../../store/useShipStore";
+import { useShipStore } from "../../store/useShipStore";
+import { useShipSnapshot } from "../../hooks/useShipSnapshot";
 
 import Ship from "./Ship";
 
@@ -12,17 +13,13 @@ const Scene = () => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [hasSize, setHasSize] = useState(false);
 
-  const shipStore = useShipStore();
-  const ships = useShipStore(selectDisplayShips);
-  const selectedShipMmsi = shipStore.selectedShipMmsi;
+  const ships = useShipSnapshot({ delayMs: 1000 });
+  const selectedShipMmsi = useShipStore((state) => state.selectedShipMmsi);
 
   const selectedShip = selectedShipMmsi ? ships[selectedShipMmsi] : null;
   const shipList = Object.values(ships);
   const firstShip = shipList[0] ?? null;
   const displayShip = selectedShip ?? firstShip;
-
-  const mmsiKeys = Object.keys(ships);
-  const shipCountValue = mmsiKeys.length;
 
   // Canvas는 컨테이너가 실제 크기를 가진 뒤에만 마운트 (0x0이면 WebGL이 안 그려짐)
   // Canvasはコンテナに実サイズが付いてからマウント（0x0だとWebGLが描画されない）
@@ -47,11 +44,6 @@ const Scene = () => {
       className="w-full h-full min-h-[280px] bg-[#1a1c23] relative"
       style={{ minHeight: "280px" }}
     >
-      {/* 렌더링 상태 확인용 / レンダリング状態確認用 / Rendering status check. */}
-      <div className="absolute top-0 right-0 p-2 bg-black/50 text-[10px] text-indigo-400 font-mono z-20 rounded-bl-lg border-l border-b border-indigo-500/30">
-        GL_READY: TRUE | SHIPS: {shipCountValue}
-      </div>
-
       {hasSize && <Canvas
         shadows
         camera={{ position: [20, 20, 20], fov: 50 }}
@@ -70,7 +62,6 @@ const Scene = () => {
           antialias: true,
           alpha: false,
           powerPreference: "high-performance",
-          preserveDrawingBuffer: true,
         }}
       >
         <color attach="background" args={["#16191f"]} />
@@ -78,10 +69,6 @@ const Scene = () => {
         <pointLight position={[20, 20, 20]} intensity={3} />
         <directionalLight position={[-10, 20, 10]} intensity={2} />
         <gridHelper args={[100, 20, "#444466", "#222233"]} />
-        <mesh position={[0, 0, 0]}>
-          <boxGeometry args={[1, 1, 1]} />
-          <meshBasicMaterial color="red" />
-        </mesh>
         <Suspense fallback={null}>
           {displayShip && (
             <Ship

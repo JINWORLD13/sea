@@ -1,7 +1,7 @@
 // 메인 대시보드: 선박 지도와 상세 정보를 통합하여 보여줍니다.
 // メインダッシュボード：船舶地図と詳細情報を統合して表示します。
 // Main Dashboard: Integrates ship map and detailed information.
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import {
   Globe,
   Compass,
@@ -14,17 +14,19 @@ import {
 } from "lucide-react";
 import {
   useShipStore,
-  startAisStream,
-  stopAisStream,
   matchShipQuery,
-  selectDisplayShips,
 } from "../store/useShipStore";
-import Scene from "../components/3d/Scene";
 import ShipMap from "../components/map/ShipMap";
 import Alerts from "../components/dashboard/Alerts";
 import ModeSwitcher from "../components/dashboard/ModeSwitcher";
 import StatsBar from "../components/dashboard/StatsBar";
 import { useTranslation } from "react-i18next";
+import { useShipSnapshot } from "../hooks/useShipSnapshot";
+
+// 3D 씬(three.js ~1MB)은 지연 로드하여 초기 번들/접속 속도를 개선한다.
+// Lazy-load the 3D scene (three.js, ~1MB) to keep the initial bundle small
+// and the first paint fast.
+const Scene = lazy(() => import("../components/3d/Scene"));
 
 const Dashboard = () => {
   // 플랫폼 모드 상태 관리
@@ -33,18 +35,15 @@ const Dashboard = () => {
   const [platformMode, setPlatformMode] = useState<
     "fleet" | "safety" | "marina"
   >("fleet");
-  const [dataFeedMode, setDataFeedMode] = useState<"live" | "demo">("live");
-
-  const shipStore = useShipStore();
-  const shipsMap = useShipStore(selectDisplayShips);
-  const selectedMmsi = shipStore.selectedShipMmsi;
-  const regionObj = shipStore.currentRegion;
-  const updateRegion = shipStore.setRegion;
-  const fleetMmsisList = shipStore.fleetMmsis;
-  const searchQuery = shipStore.searchQuery;
-  const isFleetOnly = shipStore.activeFleetOnly;
-  const toggleFleetMode = shipStore.setFleetMode;
-  const toggleMarinaMode = shipStore.setMarinaMode;
+  const shipsMap = useShipSnapshot({ delayMs: 800 });
+  const selectedMmsi = useShipStore((state) => state.selectedShipMmsi);
+  const regionObj = useShipStore((state) => state.currentRegion);
+  const updateRegion = useShipStore((state) => state.setRegion);
+  const fleetMmsisList = useShipStore((state) => state.fleetMmsis);
+  const searchQuery = useShipStore((state) => state.searchQuery);
+  const isFleetOnly = useShipStore((state) => state.activeFleetOnly);
+  const toggleFleetMode = useShipStore((state) => state.setFleetMode);
+  const toggleMarinaMode = useShipStore((state) => state.setMarinaMode);
 
   const translation = useTranslation();
   const { t } = translation;
@@ -73,15 +72,6 @@ const Dashboard = () => {
       i18nObj.changeLanguage("en");
     } else {
       i18nObj.changeLanguage("ko");
-    }
-  };
-
-  const handleFeedModeChange = (mode: "live" | "demo") => {
-    setDataFeedMode(mode);
-    if (mode === "demo") {
-      stopAisStream();
-      // Force demo source by clearing live cache/state immediately.
-      useShipStore.setState({ isConnected: false, ships: {}, selectedShipMmsi: null });
     }
   };
 
@@ -137,22 +127,13 @@ const Dashboard = () => {
   }, [allShipsEntries, searchQuery]);
   useEffect(() => {
     if (singleSearchMatchId) {
-      shipStore.selectShip(singleSearchMatchId);
+      useShipStore.getState().selectShip(singleSearchMatchId);
     }
   }, [singleSearchMatchId]);
 
-  // 초기 로드 및 실시간 데이터 스트리밍 시작 (해역 변경 시에만 재연결, 의존성 최소화로 HMR/리렌더 시 불필요한 끊김 방지)
-  // 初期ロードおよびリアルタイムデータストリーミングの開始（海域変更時のみ再接続）
+  // URL 공유 링크로 들어온 경우 해당 MMSI를 선택합니다.
+  // URL共有リンクで入った場合、そのMMSIを選択します。
   useEffect(() => {
-    if (dataFeedMode === "demo") {
-      stopAisStream();
-      return;
-    }
-
-    // Always subscribe globally so verified live vessels are available on map.
-    const bounds: [number, number, number, number] = [-90, -180, 90, 180];
-    startAisStream(bounds);
-
     const fullUrlSearch = window.location.search;
     const urlParams = new URLSearchParams(fullUrlSearch);
     const mmsiFromUrl = urlParams.get("mmsi");
@@ -160,19 +141,7 @@ const Dashboard = () => {
       const shipManager = useShipStore.getState();
       shipManager.selectShip(mmsiFromUrl);
     }
-
-    const timerInterval = setInterval(() => {
-      const state = useShipStore.getState();
-      state.checkRisks();
-      state.tick();
-    }, 2000);
-
-    return () => {
-      stopAisStream();
-      clearInterval(timerInterval);
-    };
-    // regionObj.id만 의존: 해역이 바뀔 때만 스트림 재시작. checkRiskFunc/tickFunc 제거로 리렌더 시 불필요한 연결 해제 방지.
-  }, [regionObj.id, dataFeedMode]);
+  }, []);
 
   /**
    * [KO]
@@ -292,29 +261,6 @@ const Dashboard = () => {
                 </button>
               );
             })}
-          </div>
-          <div className="w-px h-6 bg-white/5 mx-1" />
-          <div className="flex items-center gap-1 bg-black/20 p-1 rounded-xl border border-white/5">
-            <button
-              onClick={() => handleFeedModeChange("live")}
-              className={`px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
-                dataFeedMode === "live"
-                  ? "bg-emerald-500 text-white shadow-lg shadow-emerald-500/30"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              LIVE
-            </button>
-            <button
-              onClick={() => handleFeedModeChange("demo")}
-              className={`px-3 py-2 rounded-lg text-xs font-black uppercase tracking-widest transition-all ${
-                dataFeedMode === "demo"
-                  ? "bg-amber-500 text-black shadow-lg shadow-amber-500/20"
-                  : "text-slate-500 hover:text-slate-300"
-              }`}
-            >
-              DEMO
-            </button>
           </div>
           <div className="w-px h-6 bg-white/5 mx-1" />
           <button
@@ -509,14 +455,14 @@ const Dashboard = () => {
                 title={
                   typeof currentShip?.fuel === "number"
                     ? String(currentShip.fuel)
-                    : "100"
+                    : "N/A"
                 }
               >
                 {typeof currentShip?.fuel === "number"
                   ? currentShip.fuel.toFixed(1)
-                  : "100"}
+                  : "N/A"}
                 <span className="text-xs text-slate-500 font-normal ml-1">
-                  %
+                  {typeof currentShip?.fuel === "number" ? "%" : ""}
                 </span>
               </p>
             </div>
@@ -528,8 +474,15 @@ const Dashboard = () => {
                 <Activity size={16} className="text-amber-500" />
               </div>
               <p className="text-sm font-bold text-white leading-relaxed">
-                R: {currentShip?.motion.roll.toFixed(1) || "0.0"}°<br />
-                P: {currentShip?.motion.pitch.toFixed(1) || "0.0"}°
+                R:{" "}
+                {typeof currentShip?.motion?.roll === "number"
+                  ? currentShip.motion.roll.toFixed(1) + "°"
+                  : "N/A"}
+                <br />
+                P:{" "}
+                {typeof currentShip?.motion?.pitch === "number"
+                  ? currentShip.motion.pitch.toFixed(1) + "°"
+                  : "N/A"}
               </p>
             </div>
             <div className="glass-card p-5 rounded-2xl border-l-4 border-violet-500">
@@ -540,9 +493,11 @@ const Dashboard = () => {
                 <Wind size={16} className="text-violet-400" />
               </div>
               <p className="text-2xl font-black text-white">
-                {currentShip?.wind.speed || "0"}{" "}
+                {typeof currentShip?.wind?.speed === "number"
+                  ? currentShip.wind.speed
+                  : "N/A"}{" "}
                 <span className="text-xs text-slate-500 font-normal ml-1">
-                  KN
+                  {typeof currentShip?.wind?.speed === "number" ? "KN" : ""}
                 </span>
               </p>
             </div>
@@ -562,7 +517,15 @@ const Dashboard = () => {
               {displayShipForPanel ? (
                 <div className="flex-1 min-h-0 flex flex-col">
                   <div className="h-[320px] w-full shrink-0 relative bg-black">
-                    <Scene />
+                    <Suspense
+                      fallback={
+                        <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-xs">
+                          Loading 3D...
+                        </div>
+                      }
+                    >
+                      <Scene />
+                    </Suspense>
                   </div>
                   <div className="p-5 bg-black/40 border-t border-white/5 shrink-0 min-h-0 overflow-y-auto">
                     <h4 className="text-xs font-black text-indigo-400 mb-3 uppercase tracking-wider">
