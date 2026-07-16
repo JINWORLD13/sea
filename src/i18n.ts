@@ -10,12 +10,13 @@ i18n
     resources: {
       en: { translation: translations.en },
       ko: { translation: translations.ko },
+      ja: { translation: translations.ja },
     },
     fallbackLng: "ko",
-    // 지원 언어를 en/ko로 한정하고 지역코드(en-US 등)는 기본 언어로 축약.
-    // Restrict to en/ko and collapse region codes (e.g. en-US → en) so the
+    // 지원 언어를 en/ko/ja로 한정하고 지역코드(en-US 등)는 기본 언어로 축약.
+    // Restrict to en/ko/ja and collapse region codes (e.g. en-US → en) so the
     // detector never resolves to a language without resources.
-    supportedLngs: ["en", "ko"],
+    supportedLngs: ["en", "ko", "ja"],
     load: "languageOnly",
     interpolation: {
       escapeValue: false,

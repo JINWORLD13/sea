@@ -12,6 +12,14 @@ interface StatsBarProps {
   t: (key: TranslationKey) => string;
 }
 
+// CSV 필드 이스케이프: 쉼표/따옴표/개행이 포함되면 RFC 4180 방식으로 감싼다.
+// CSVフィールドのエスケープ：カンマ／引用符／改行を含む場合はRFC 4180方式で囲む。
+// Escape a CSV field per RFC 4180 when it contains commas, quotes or newlines.
+const csvField = (value: string | number | null | undefined): string => {
+  const text = value === null || value === undefined ? "" : String(value);
+  return /[",\n\r]/.test(text) ? '"' + text.replace(/"/g, '""') + '"' : text;
+};
+
 const StatsBar = ({
   isFleetOnly,
   shipCountFleet,
@@ -22,7 +30,12 @@ const StatsBar = ({
   const streamStatus = useShipStore((s) => s.streamStatus);
 
   const handleShare = () => {
-    const url = window.location.origin + "/?mmsi=" + (selectedMmsi || "");
+    // 선택 선박이 있으면 ?mmsi= 딥링크를, 없으면 앱 루트 링크를 공유한다.
+    // 選択船舶があれば ?mmsi= ディープリンクを、なければアプリのルートを共有。
+    // Share a ?mmsi= deep link when a vessel is selected, the app root otherwise.
+    const url = selectedMmsi
+      ? window.location.origin + "/?mmsi=" + encodeURIComponent(selectedMmsi)
+      : window.location.origin + "/";
     // clipboard API는 비보안 컨텍스트/권한 거부 시 throw하거나 reject한다.
     // clipboard API can throw (insecure context) or reject (denied); guard it.
     const onCopied = () => alert(t("shareLinkCopied"));
@@ -37,17 +50,35 @@ const StatsBar = ({
 
   const handleExport = () => {
     const store = useShipStore.getState();
-    const ships = Object.values(selectDisplayShips(store));
-    let csv = "MMSI,Name,Lat,Lng,Speed\n";
-    for (let i = 0; i < ships.length; i++) {
-      const s = ships[i];
-      csv += `${s.id},${s.name},${s.position.lat},${s.position.lng},${s.speed}\n`;
+    let ships = Object.values(selectDisplayShips(store));
+    // 함대 모드에서는 화면 통계와 동일하게 함대 선박만 내보낸다.
+    // 艦隊モードでは画面の統計と同様に艦隊船舶のみをエクスポートする。
+    // In fleet mode export exactly what the stats show: fleet vessels only.
+    if (store.activeFleetOnly && store.fleetMmsis.length > 0) {
+      const fleetSet = new Set(store.fleetMmsis);
+      ships = ships.filter((ship) => fleetSet.has(ship.id));
     }
+    const rows = ["MMSI,Name,Category,Destination,Lat,Lng,SpeedKn"];
+    for (const s of ships) {
+      rows.push(
+        [
+          csvField(s.id),
+          csvField(s.name),
+          csvField(s.category),
+          csvField(s.destination ?? ""),
+          s.position.lat,
+          s.position.lng,
+          s.speed,
+        ].join(","),
+      );
+    }
+    const csv = rows.join("\n") + "\n";
     const blob = new Blob([csv], { type: "text/csv" });
     const link = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = link;
-    a.download = "maritime_report.csv";
+    a.download =
+      "maritime_report_" + new Date().toISOString().slice(0, 10) + ".csv";
     document.body.appendChild(a);
     a.click();
     a.remove();

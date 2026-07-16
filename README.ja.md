@@ -53,7 +53,7 @@
 ## 📂 プロジェクト構造
 
 ```text
-seadronix/
+seatrace/
 ├── src/
 │   ├── components/
 │   │   ├── 3d/           # Three.js / React Three Fiber (Ship, Scene)

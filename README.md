@@ -10,7 +10,7 @@ Welcome! Please select your preferred language to view the documentation:
 
 # AI Maritime Monitoring & Digital Twin System
 
-Real-time ship monitoring and digital twin interface inspired by Seadronix's AI autonomous navigation technology.
+Real-time ship monitoring and digital twin interface inspired by AI autonomous navigation and smart port technology.
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?logo=typescript&logoColor=white)
@@ -63,7 +63,7 @@ This project is a Real-time Ship Monitoring & Digital Twin Interface developed a
 ## 📂 Project Structure
 
 ```text
-seadronix/
+seatrace/
 ├── src/
 │   ├── components/
 │   │   ├── 3d/           # Three.js / React Three Fiber (Ship, Scene)

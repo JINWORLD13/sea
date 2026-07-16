@@ -8,14 +8,20 @@ import {
   Anchor,
   History,
   Gauge,
-  Fuel,
+  Navigation,
+  Ruler,
+  Ship,
   Activity,
-  Wind,
 } from "lucide-react";
 import {
   useShipStore,
   matchShipQuery,
 } from "../store/useShipStore";
+import {
+  formatEta,
+  getCategoryLabelKey,
+  getNavStatusLabelKey,
+} from "../utils/aisTypes";
 import ShipMap from "../components/map/ShipMap";
 import Alerts from "../components/dashboard/Alerts";
 import ModeSwitcher from "../components/dashboard/ModeSwitcher";
@@ -27,6 +33,11 @@ import { useShipSnapshot } from "../hooks/useShipSnapshot";
 // Lazy-load the 3D scene (three.js, ~1MB) to keep the initial bundle small
 // and the first paint fast.
 const Scene = lazy(() => import("../components/3d/Scene"));
+
+// 언어 토글 순환 순서 (en → ko → ja).
+// 言語トグルの循環順序（en → ko → ja）。
+// Language toggle cycle order (en → ko → ja).
+const LANGUAGE_CYCLE = ["en", "ko", "ja"] as const;
 
 const Dashboard = () => {
   // 플랫폼 모드 상태 관리
@@ -44,14 +55,19 @@ const Dashboard = () => {
   const isFleetOnly = useShipStore((state) => state.activeFleetOnly);
   const toggleFleetMode = useShipStore((state) => state.setFleetMode);
   const toggleMarinaMode = useShipStore((state) => state.setMarinaMode);
+  const speedUnit = useShipStore((state) => state.settings.speedUnit);
 
   const translation = useTranslation();
   const { t } = translation;
   const i18nObj = translation.i18n;
 
-  // 버튼 클릭 시 모드 전환 처리
-  // ボタンクリック時のモード切替処理
-  // Handle mode switching on button click.
+  // 버튼 클릭 시 모드 전환 처리: fleet은 실제 함대 필터, marina는 소형선(7kn 미만)
+  // 필터, safety는 두 필터를 해제하고 전역 알림 피드 패널을 강조한다.
+  // ボタンクリック時のモード切替処理：fleetは実際の艦隊フィルター、marinaは小型船
+  // （7kn未満）フィルター、safetyは両フィルターを解除しグローバルアラートパネルを強調。
+  // Handle mode switching: fleet applies the real fleet filter, marina applies the
+  // small-craft (<7 kn) filter, safety clears both and highlights the global
+  // alert-feed panel.
   const handleSwitchMode = (mode: "fleet" | "safety" | "marina") => {
     setPlatformMode(mode);
     if (mode === "fleet") {
@@ -66,38 +82,41 @@ const Dashboard = () => {
     }
   };
 
-  const currentLang = i18nObj.language as "en" | "ko";
+  // 현재 언어(지역코드 포함 가능)를 기본 언어로 축약한 뒤 en → ko → ja 순환.
+  // 現在の言語（地域コードを含む場合あり）を基本言語に縮約し en → ko → ja を循環。
+  // Collapse the current language (may carry a region code) to its base form,
+  // then cycle en → ko → ja.
+  const baseLang = (i18nObj.language || "en").split("-")[0];
   const handleToggleLang = () => {
-    if (currentLang === "ko") {
-      i18nObj.changeLanguage("en");
-    } else {
-      i18nObj.changeLanguage("ko");
-    }
+    const currentIndex = LANGUAGE_CYCLE.indexOf(
+      baseLang as (typeof LANGUAGE_CYCLE)[number],
+    );
+    const nextLang = LANGUAGE_CYCLE[(currentIndex + 1) % LANGUAGE_CYCLE.length];
+    i18nObj.changeLanguage(nextLang);
   };
 
   const currentShip = selectedMmsi ? shipsMap[selectedMmsi] : null;
 
-  // 예상 도착 시간(ETA) 계산
-  // 到착予定時刻（ETA）の計算
-  // Calculate Estimated Time of Arrival (ETA).
-  const etaValue = useMemo(() => {
-    if (currentShip === null || currentShip === undefined) {
-      return "N/A";
-    }
-    if (currentShip.speed < 0.5) {
-      return "N/A";
-    }
+  // 실제 AIS 항해 데이터(목적지 + ETA). 방송되지 않았으면 "—"로 정직하게 표기.
+  // 実際のAIS航海データ（目的地＋ETA）。放送されていなければ「—」で正直に表記。
+  // Real AIS voyage data (destination + ETA); honest "—" when not broadcast.
+  const destinationText = currentShip?.destination?.trim() || "—";
+  const etaText = (currentShip ? formatEta(currentShip.eta) : null) ?? "—";
 
-    const distanceKm = 5.2; // 임의의 가상 거리 (Arbitrary distance)
-    const timeHours = distanceKm / currentShip.speed;
-    const timeMins = Math.round(timeHours * 60);
-    const resultEta = timeMins + "m";
-    return resultEta;
-  }, [currentShip]);
+  // 속도 단위 설정(kn/km/h)을 반영한 표기.
+  // 速度単位設定（kn/km/h）を反映した表記。
+  // Speed formatting honoring the speed-unit setting (kn / km/h).
+  const speedUnitLabel = speedUnit === "kmh" ? "KM/H" : "KN";
+  const formatSpeedValue = (speedKn: number): string =>
+    (speedUnit === "kmh" ? speedKn * 1.852 : speedKn).toFixed(1);
 
-  const shipCountTotal = Object.keys(shipsMap).length;
   const allShipsEntries = Object.values(shipsMap);
-  const displayShipForPanel = currentShip ?? allShipsEntries[0] ?? null;
+  // 통계에는 실제 선박(kind === "vessel")만 집계한다 (AtoN/기지국 제외).
+  // 統計には実際の船舶（kind === "vessel"）のみを集計（AtoN／基地局を除外）。
+  // Only true vessels count toward the stats (AtoN / base stations excluded).
+  const shipCountTotal = allShipsEntries.filter(
+    (s) => s.kind === "vessel",
+  ).length;
   const filteredFleetShips = allShipsEntries.filter((s) => {
     const isIncluded = fleetMmsisList.includes(s.id);
     return isIncluded;
@@ -143,6 +162,68 @@ const Dashboard = () => {
     }
   }, []);
 
+  // 궤적 리플레이: 슬라이더가 선택 선박의 타임스탬프 경로를 스크럽하며
+  // 지도에는 고스트 마커만 그린다. 라이브 선박 데이터는 절대 변경하지 않는다.
+  // 선택 변경/페이지 이탈 시 고스트를 반드시 정리한다.
+  // 航跡リプレイ：スライダーが選択船舶のタイムスタンプ付き経路をスクラブし、
+  // 地図にはゴーストマーカーのみ描画。ライブ船舶データは絶対に変更しない。
+  // 選択変更／ページ離脱時にゴーストを必ずクリアする。
+  // Track replay: the slider scrubs the selected ship's timestamped path and
+  // drives a ghost marker only — the live vessel is NEVER mutated. The ghost is
+  // always cleared when the selection changes or the page unmounts.
+  const [replayIndex, setReplayIndex] = useState<number | null>(null);
+  // 선택 선박이 바뀌면 리플레이 인덱스를 초기화한다. React 권장 패턴에 따라
+  // effect 안의 setState 대신 렌더 중 이전값 비교로 상태를 조정한다.
+  // 選択船舶が変わればリプレイインデックスを初期化する。Reactの推奨パターンに従い、
+  // effect内のsetStateではなくレンダー中の前回値比較で状態を調整する。
+  // Reset the replay index when the selected ship changes, using React's
+  // "adjust state during render" pattern instead of setState inside an effect.
+  const [replayTrackedMmsi, setReplayTrackedMmsi] = useState<string | null>(
+    selectedMmsi,
+  );
+  if (replayTrackedMmsi !== selectedMmsi) {
+    setReplayTrackedMmsi(selectedMmsi);
+    setReplayIndex(null);
+  }
+  // 고스트는 외부 스토어(Zustand) 상태이므로 선택 변경/언마운트 시 정리한다.
+  // ゴーストは外部ストア(Zustand)の状態なので、選択変更/アンマウント時に片付ける。
+  // The ghost lives in the external store, so clear it on selection change/unmount.
+  useEffect(() => {
+    return () => {
+      useShipStore.getState().setReplayGhost(null);
+    };
+  }, [selectedMmsi]);
+
+  const replayPath = currentShip?.path ?? [];
+  const clampedReplayIndex =
+    replayIndex === null
+      ? null
+      : Math.min(replayIndex, Math.max(replayPath.length - 1, 0));
+  const scrubbedPoint =
+    clampedReplayIndex === null ? null : (replayPath[clampedReplayIndex] ?? null);
+
+  const handleScrub = (rawIndex: number) => {
+    if (!currentShip || currentShip.path.length === 0) return;
+    const index = Math.min(
+      Math.max(rawIndex, 0),
+      currentShip.path.length - 1,
+    );
+    const point = currentShip.path[index];
+    if (!point) return;
+    setReplayIndex(index);
+    useShipStore.getState().setReplayGhost({
+      mmsi: currentShip.id,
+      lat: point.lat,
+      lng: point.lng,
+      ts: point.ts,
+    });
+  };
+
+  const handleExitReplay = () => {
+    setReplayIndex(null);
+    useShipStore.getState().setReplayGhost(null);
+  };
+
   /**
    * [KO]
    * <div(컨테이너)>
@@ -185,11 +266,7 @@ const Dashboard = () => {
   return (
     <div className="space-y-6 pb-12">
       <title>Dashboard - {t("appName")}</title>
-      <ModeSwitcher
-        platformMode={platformMode}
-        onSwitchMode={handleSwitchMode}
-        t={t}
-      />
+      <ModeSwitcher platformMode={platformMode} onSwitchMode={handleSwitchMode} />
 
       {/*
         2. 주 정보 헤더
@@ -208,17 +285,22 @@ const Dashboard = () => {
                 </div>
                 <div>
                   <div className="text-2xl">{currentShip.name}</div>
-                  <div className="flex items-center gap-3 mt-1">
+                  <div className="flex flex-wrap items-center gap-3 mt-1">
                     <span className="text-xs text-slate-400 font-mono uppercase tracking-wider">
                       MMSI: {currentShip.id}
                     </span>
                     <span className="w-1 h-1 bg-slate-700 rounded-full" />
-                    <span className="text-xs text-emerald-400 font-black uppercase">
-                      ETA: {etaValue}
+                    <span className="text-xs text-indigo-400 font-black uppercase">
+                      {t(getCategoryLabelKey(currentShip.category))}
                     </span>
                     <span className="w-1 h-1 bg-slate-700 rounded-full" />
-                    <span className="text-xs text-indigo-400 font-black uppercase">
-                      {currentShip.type}
+                    <span className="text-xs text-slate-400 font-mono uppercase">
+                      {t("dest")}:{" "}
+                      <span className="text-white">{destinationText}</span>
+                    </span>
+                    <span className="w-1 h-1 bg-slate-700 rounded-full" />
+                    <span className="text-xs text-emerald-400 font-black uppercase">
+                      ETA: {etaText}
                     </span>
                   </div>
                 </div>
@@ -268,7 +350,7 @@ const Dashboard = () => {
             className="flex items-center gap-2 px-4 py-2 rounded-xl glass-button text-white text-xs font-black uppercase"
           >
             <Globe size={16} className="text-indigo-400" />
-            {currentLang?.toUpperCase()}
+            {baseLang.toUpperCase()}
           </button>
         </div>
       </div>
@@ -358,7 +440,7 @@ const Dashboard = () => {
                       </div>
                       <div className="flex items-center justify-between">
                         <p className="text-xs text-slate-500 font-mono">
-                          {(sObj?.speed || 0).toFixed(1)} KN
+                          {formatSpeedValue(sObj?.speed ?? 0)} {speedUnitLabel}
                         </p>
                         <div className={dotStyles} />
                       </div>
@@ -383,12 +465,12 @@ const Dashboard = () => {
                 </button>
               )}
 
-            {currentShip && currentShip.path.length > 0 && (
+            {currentShip && currentShip.path.length > 1 && (
               <div className="mt-6 pt-5 border-t border-white/5">
                 <div className="flex items-center justify-between mb-3">
                   <h4 className="text-xs font-black text-slate-500 uppercase tracking-widest flex items-center gap-2">
                     <History size={14} />
-                    Historical Replay
+                    {t("historicalReplay")}
                   </h4>
                   <span className="text-xs text-indigo-400 font-mono">
                     {currentShip.path.length} {t("pts")}
@@ -396,28 +478,43 @@ const Dashboard = () => {
                 </div>
                 <input
                   type="range"
-                  min="0"
-                  max={currentShip.path.length - 1}
+                  min={0}
+                  max={Math.max(currentShip.path.length - 1, 0)}
+                  value={
+                    clampedReplayIndex ??
+                    Math.max(currentShip.path.length - 1, 0)
+                  }
                   className="w-full accent-indigo-500 h-1 bg-white/10 rounded-lg appearance-none cursor-pointer"
                   onChange={(changeEvent) => {
-                    const sliderValue = changeEvent.target.value;
-                    const pathIndex = parseInt(sliderValue);
-                    const historicalPoint = currentShip.path[pathIndex];
-                    if (historicalPoint) {
-                      const storeInstance = useShipStore.getState();
-                      const payload = {
-                        position: {
-                          lat: historicalPoint.lat,
-                          lng: historicalPoint.lng,
-                        },
-                      };
-                      const config = {
-                        skipPathRecord: true,
-                      };
-                      storeInstance.updateShip(currentShip.id, payload, config);
-                    }
+                    handleScrub(parseInt(changeEvent.target.value, 10));
                   }}
                 />
+                <div className="flex items-center justify-between mt-2">
+                  {/*
+                    스크럽 중이면 해당 지점의 수신 시각을, 아니면 LIVE를 표시.
+                    スクラブ中はその地点の受信時刻を、そうでなければLIVEを表示。
+                    Show the scrubbed point's report time, or LIVE otherwise.
+                  */}
+                  <span
+                    className={
+                      scrubbedPoint
+                        ? "text-[11px] font-mono text-violet-300"
+                        : "text-[11px] font-mono text-emerald-400"
+                    }
+                  >
+                    {scrubbedPoint
+                      ? new Date(scrubbedPoint.ts).toLocaleTimeString()
+                      : t("live")}
+                  </span>
+                  {scrubbedPoint && (
+                    <button
+                      onClick={handleExitReplay}
+                      className="text-[10px] font-black uppercase tracking-widest text-slate-400 hover:text-white px-2 py-1 border border-white/10 rounded-lg hover:bg-white/10 transition-all"
+                    >
+                      {t("exitReplay", "Exit replay")}
+                    </button>
+                  )}
+                </div>
               </div>
             )}
           </div>
@@ -428,6 +525,14 @@ const Dashboard = () => {
             <ShipMap />
           </div>
 
+          {/*
+            선택 선박의 실제 AIS 텔레메트리 카드 (속도/침로/항해 상태/제원).
+            방송되지 않은 값은 "—"로 정직하게 표기한다.
+            選択船舶の実際のAISテレメトリカード（速度／針路／航海状態／諸元）。
+            放送されていない値は「—」で正直に表記する。
+            Real AIS telemetry cards for the selected vessel (speed / course /
+            nav status / dimensions). Unbroadcast values honestly show "—".
+          */}
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="glass-card p-5 rounded-2xl border-l-4 border-indigo-500">
               <div className="flex items-center justify-between mb-2">
@@ -437,68 +542,61 @@ const Dashboard = () => {
                 <Gauge size={16} className="text-indigo-400" />
               </div>
               <p className="text-2xl font-black text-white">
-                {currentShip?.speed.toFixed(1) || "0.0"}{" "}
+                {currentShip ? formatSpeedValue(currentShip.speed) : "—"}{" "}
                 <span className="text-xs text-slate-500 font-normal ml-1">
-                  KN
+                  {speedUnitLabel}
                 </span>
               </p>
             </div>
-            <div className="glass-card p-5 rounded-2xl border-l-4 border-emerald-500 min-w-0 overflow-hidden">
+            <div className="glass-card p-5 rounded-2xl border-l-4 border-emerald-500">
               <div className="flex items-center justify-between mb-2">
                 <p className="text-xs font-bold text-slate-400 uppercase">
-                  {t("energy")}
+                  {t("course")}
                 </p>
-                <Fuel size={16} className="text-emerald-400 shrink-0" />
-              </div>
-              <p
-                className="text-2xl font-black text-white truncate"
-                title={
-                  typeof currentShip?.fuel === "number"
-                    ? String(currentShip.fuel)
-                    : "N/A"
-                }
-              >
-                {typeof currentShip?.fuel === "number"
-                  ? currentShip.fuel.toFixed(1)
-                  : "N/A"}
-                <span className="text-xs text-slate-500 font-normal ml-1">
-                  {typeof currentShip?.fuel === "number" ? "%" : ""}
-                </span>
-              </p>
-            </div>
-            <div className="glass-card p-5 rounded-2xl border-l-4 border-amber-500">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-bold text-slate-400 uppercase">
-                  {t("dynamics")}
-                </p>
-                <Activity size={16} className="text-amber-500" />
-              </div>
-              <p className="text-sm font-bold text-white leading-relaxed">
-                R:{" "}
-                {typeof currentShip?.motion?.roll === "number"
-                  ? currentShip.motion.roll.toFixed(1) + "°"
-                  : "N/A"}
-                <br />
-                P:{" "}
-                {typeof currentShip?.motion?.pitch === "number"
-                  ? currentShip.motion.pitch.toFixed(1) + "°"
-                  : "N/A"}
-              </p>
-            </div>
-            <div className="glass-card p-5 rounded-2xl border-l-4 border-violet-500">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-bold text-slate-400 uppercase">
-                  {t("atmosphere")}
-                </p>
-                <Wind size={16} className="text-violet-400" />
+                <Navigation size={16} className="text-emerald-400" />
               </div>
               <p className="text-2xl font-black text-white">
-                {typeof currentShip?.wind?.speed === "number"
-                  ? currentShip.wind.speed
-                  : "N/A"}{" "}
-                <span className="text-xs text-slate-500 font-normal ml-1">
-                  {typeof currentShip?.wind?.speed === "number" ? "KN" : ""}
-                </span>
+                {currentShip?.cog != null
+                  ? Math.round(currentShip.cog) + "°"
+                  : "—"}
+              </p>
+              <p className="text-[11px] text-slate-500 font-mono uppercase mt-1">
+                {t("heading")}:{" "}
+                {currentShip?.heading != null
+                  ? currentShip.heading + "°"
+                  : "—"}
+              </p>
+            </div>
+            <div className="glass-card p-5 rounded-2xl border-l-4 border-amber-500 min-w-0 overflow-hidden">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-slate-400 uppercase">
+                  {t("navStatusLabel", "Nav Status")}
+                </p>
+                <Ship size={16} className="text-amber-500 shrink-0" />
+              </div>
+              <p className="text-sm font-bold text-white leading-relaxed break-words">
+                {currentShip
+                  ? t(getNavStatusLabelKey(currentShip.navStatus))
+                  : "—"}
+              </p>
+            </div>
+            <div className="glass-card p-5 rounded-2xl border-l-4 border-violet-500 min-w-0 overflow-hidden">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-bold text-slate-400 uppercase">
+                  {t("dimensionsLabel", "Dimensions")}
+                </p>
+                <Ruler size={16} className="text-violet-400 shrink-0" />
+              </div>
+              <p className="text-lg font-black text-white truncate">
+                {currentShip?.length != null && currentShip?.width != null
+                  ? `${currentShip.length}×${currentShip.width} m`
+                  : "—"}
+              </p>
+              <p className="text-[11px] text-slate-500 font-mono uppercase mt-1">
+                {t("draughtLabel", "Draught")}:{" "}
+                {currentShip?.draught != null
+                  ? currentShip.draught.toFixed(1) + " m"
+                  : "—"}
               </p>
             </div>
           </div>
@@ -506,21 +604,33 @@ const Dashboard = () => {
 
         <div className="lg:col-span-3 space-y-6">
           <div className="glass-card rounded-2xl h-[500px] flex flex-col overflow-hidden">
-            <div className="p-4 border-b border-white/5 flex bg-black/40 items-center justify-between shrink-0">
+            <div className="p-4 border-b border-white/5 bg-black/40 shrink-0">
               <span className="text-sm font-black uppercase tracking-[0.2em] text-indigo-400 flex items-center gap-2">
                 <Activity size={16} />
                 {t("liveIntelligence")}
               </span>
+              {/*
+                3D 씬은 시각화일 뿐임을 정직하게 밝힌다 (AIS에는 자세 데이터가 없음).
+                3Dシーンは可視化に過ぎないことを正直に明示（AISには姿勢データがない）。
+                Honest caption: the 3D scene is illustrative only (AIS carries
+                no attitude data).
+              */}
+              <p className="text-[10px] text-slate-500 mt-1 leading-snug">
+                {t(
+                  "digitalTwinDemoNote",
+                  "Attitude data not present in AIS — animation is illustrative",
+                )}
+              </p>
             </div>
 
             <div className="flex-1 min-h-0 flex flex-col relative bg-slate-900/40 w-full">
-              {displayShipForPanel ? (
+              {currentShip ? (
                 <div className="flex-1 min-h-0 flex flex-col">
-                  <div className="h-[320px] w-full shrink-0 relative bg-black">
+                  <div className="h-[300px] w-full shrink-0 relative bg-black">
                     <Suspense
                       fallback={
                         <div className="absolute inset-0 flex items-center justify-center text-slate-500 text-xs">
-                          Loading 3D...
+                          {t("loading3d", "Loading 3D...")}
                         </div>
                       }
                     >
@@ -535,19 +645,25 @@ const Dashboard = () => {
                       <div className="text-slate-500 uppercase min-w-0">
                         {t("imoNo")}:{" "}
                         <span className="text-white font-mono ml-1 break-all">
-                          {displayShipForPanel.imo || "-"}
+                          {currentShip.imo || "—"}
                         </span>
                       </div>
                       <div className="text-slate-500 uppercase min-w-0">
-                        {t("status")}:{" "}
-                        <span className="text-emerald-400 font-mono ml-1">
-                          {t("statusLive")}
+                        {t("callSign")}:{" "}
+                        <span className="text-white font-mono ml-1 break-all">
+                          {currentShip.callsign || "—"}
                         </span>
                       </div>
                       <div className="text-slate-500 col-span-2 uppercase min-w-0">
                         {t("dest")}:{" "}
                         <span className="text-white font-mono ml-1 break-all">
-                          {displayShipForPanel.destination || t("unspecified")}
+                          {currentShip.destination || t("unspecified")}
+                        </span>
+                      </div>
+                      <div className="text-slate-500 col-span-2 uppercase min-w-0">
+                        ETA:{" "}
+                        <span className="text-white font-mono ml-1">
+                          {formatEta(currentShip.eta) ?? "—"}
                         </span>
                       </div>
                     </div>
@@ -571,7 +687,7 @@ const Dashboard = () => {
               )}
             </div>
           </div>
-          <Alerts />
+          <Alerts highlighted={platformMode === "safety"} />
         </div>
       </div>
     </div>
