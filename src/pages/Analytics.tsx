@@ -1,5 +1,4 @@
 // 분석 페이지: 현재 세션에서 추적 중인 실제 AIS 데이터를 클라이언트에서 집계해 시각화합니다.
-// 分析ページ:現在のセッションで追跡中の実際のAISデータをクライアント側で集計し可視化します。
 // Analytics Page: Aggregates and visualizes the REAL AIS data tracked in this
 // session, computed entirely client-side (honest "live session analytics").
 import { useMemo } from "react";
@@ -27,7 +26,6 @@ import {
 } from "../utils/aisTypes";
 
 // i18n 키가 아직 번역되기 전에도 읽을 수 있도록 하는 영어 기본값(수집 패스가 키를 채운다).
-// i18nキーが翻訳される前でも読めるようにする英語デフォルト(収集パスがキーを埋める)。
 // English fallbacks so labels stay readable before the i18n pass fills these keys in.
 const CATEGORY_LABEL_FALLBACK: Record<ShipCategory, string> = {
   cargo: "Cargo",
@@ -58,7 +56,6 @@ const NAV_STATUS_LABEL_FALLBACK: Record<string, string> = {
 };
 
 // 속도 히스토그램 구간(계약 고정: 0-1 / 1-5 / 5-10 / 10-15 / 15+ kn).
-// 速度ヒストグラム区間(契約固定:0-1 / 1-5 / 5-10 / 10-15 / 15+ kn)。
 // Speed histogram bins (fixed by contract: 0-1 / 1-5 / 5-10 / 10-15 / 15+ kn).
 const SPEED_BINS: readonly { label: string; min: number; max: number }[] = [
   { label: "0–1", min: 0, max: 1 },
@@ -69,7 +66,6 @@ const SPEED_BINS: readonly { label: string; min: number; max: number }[] = [
 ];
 
 // 단일 시리즈 차트(히스토그램/막대)의 단일 색상. 범주 색과 혼동되지 않는 순수 크기 인코딩.
-// 単一シリーズチャート(ヒストグラム/バー)の単色。カテゴリ色と混同しない純粋な量エンコード。
 // Single hue for single-series charts (histogram/bars) — pure magnitude encoding,
 // never confused with the categorical vessel-type palette.
 const SINGLE_SERIES_HUE = "#3b82f6";
@@ -78,7 +74,6 @@ const formatSpeed = (sog: number, unit: AppSettings["speedUnit"]): string =>
   unit === "kmh" ? `${(sog * 1.852).toFixed(1)} km/h` : `${sog.toFixed(1)} kn`;
 
 // ── 도넛 차트 기하 헬퍼 (외부 라이브러리 없이 순수 SVG) ──
-// ── ドーナツチャート幾何ヘルパー(外部ライブラリなし・純SVG) ──
 // ── Donut chart geometry helpers (pure SVG, no external libraries) ──
 const polarPoint = (
   cx: number,
@@ -104,7 +99,6 @@ const describeArc = (
 };
 
 // 상단만 둥근 막대(베이스라인 고정) 경로.
-// 上端のみ丸いバー(ベースライン固定)のパス。
 // Bar path rounded only at the data end, anchored to the baseline.
 const roundedTopBarPath = (
   x: number,
@@ -140,7 +134,6 @@ interface CategoryDonutProps {
 }
 
 // 선종 도넛: 세그먼트 사이 2px 간격 + 범례의 텍스트/수치가 색상 단독 식별을 보완한다.
-// 船種ドーナツ:セグメント間2px間隔 + 凡例のテキスト/数値が色単独の識別を補完する。
 // Vessel-type donut: 2px gaps between segments, and the text+count legend ensures
 // identity is never carried by color alone (the palette is contract-fixed).
 const CategoryDonut: FC<CategoryDonutProps> = ({
@@ -154,7 +147,6 @@ const CategoryDonut: FC<CategoryDonutProps> = ({
   const radius = 72;
   const strokeWidth = 24;
   // 1px(라디안) 간격을 양쪽에 두어 세그먼트 사이 2px 표면 간격을 만든다.
-  // 両側に1px(ラジアン)の隙間を置き、セグメント間2pxの表面間隔を作る。
   // ~1px of padding per side yields a 2px surface gap between segments.
   const padAngle = slices.length > 1 ? 1 / radius : 0;
 
@@ -168,7 +160,6 @@ const CategoryDonut: FC<CategoryDonutProps> = ({
 
     if (fraction >= 0.999) {
       // 단일 카테고리가 전부일 때는 원호 대신 완전한 원으로 그린다.
-      // 単一カテゴリが全てのときは円弧の代わりに完全な円で描く。
       // A single dominant category renders as a full circle (an arc can't span 360°).
       segments.push(
         <circle
@@ -241,7 +232,6 @@ interface SpeedHistogramProps {
 }
 
 // 속도 히스토그램: 단일 색상 + 각 막대 위 직접 수치 라벨(5개 구간이므로 과밀하지 않음).
-// 速度ヒストグラム:単色 + 各バー上の直接数値ラベル(5区間なので過密にならない)。
 // Speed histogram: single hue with direct count labels (only 5 bins, never crowded).
 const SpeedHistogram: FC<SpeedHistogramProps> = ({ bins, ariaLabel }) => {
   const width = 360;
@@ -284,7 +274,6 @@ const SpeedHistogram: FC<SpeedHistogramProps> = ({ bins, ariaLabel }) => {
               />
             ) : (
               // 0인 구간도 정직하게 2px 스텁으로 표시한다.
-              // 0の区間も正直に2pxスタブで表示する。
               // Zero bins still get an honest 2px stub so the bin visibly exists.
               <rect
                 x={x}
@@ -367,7 +356,6 @@ const Analytics: FC = (): ReactElement => {
   const selectShip = useShipStore((state) => state.selectShip);
 
   // ── 세션 스냅샷으로부터 전 지표를 클라이언트에서 파생 ──
-  // ── セッションスナップショットから全指標をクライアント側で導出 ──
   // ── Derive every metric client-side from the live session snapshot ──
   const analytics = useMemo(() => {
     const all = Object.values(ships);
@@ -460,11 +448,6 @@ const Analytics: FC = (): ReactElement => {
    */
   /**
    * [JA]
-   * <div(コンテナ)>
-   *  <div(ヘッダー:タイトル + ライブセッションバッジ)>
-   *  <div(要約指標グリッド)>
-   *  <div(チャートグリッド:船種ドーナツ / 速度分布 / 航行状態 / 警報深刻度)>
-   *  <div(最速上位10隻テーブル)>
    * </div>
    */
   /**
@@ -498,7 +481,6 @@ const Analytics: FC = (): ReactElement => {
 
       {/*
           요약 지표 카드 — 전부 현재 스냅샷에서 계산된 실측치.
-          要約指標カード — すべて現在のスナップショットから計算した実測値。
           Summary metric tiles — every figure measured from the current snapshot.
       */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -534,7 +516,6 @@ const Analytics: FC = (): ReactElement => {
 
       {analytics.vesselCount === 0 ? (
         // 정직한 빈 상태: 가짜 데이터 대신 수신 대기 상태를 그대로 보여준다.
-        // 正直な空状態:偽データの代わりに受信待ち状態をそのまま見せる。
         // Honest empty state — no fabricated data while waiting for live AIS traffic.
         <div className="bg-white rounded-2xl shadow-sm border border-slate-100 p-16 flex flex-col items-center justify-center text-center gap-3">
           <div className="p-4 bg-slate-50 text-slate-400 rounded-2xl">
@@ -552,7 +533,6 @@ const Analytics: FC = (): ReactElement => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             {/*
                 선종별 선박 수 도넛 + 범례(텍스트/수치로 색상 식별을 보완).
-                船種別隻数ドーナツ + 凡例(テキスト/数値で色識別を補完)。
                 Vessel count by category — donut plus a text+count legend.
             */}
             <ChartCard
@@ -606,7 +586,6 @@ const Analytics: FC = (): ReactElement => {
 
             {/*
                 속도 분포 히스토그램(계약 고정 구간, SOG는 노트 기준).
-                速度分布ヒストグラム(契約固定区間、SOGはノット基準)。
                 Speed distribution histogram (contract-fixed bins, SOG in knots).
             */}
             <ChartCard
@@ -624,7 +603,6 @@ const Analytics: FC = (): ReactElement => {
 
             {/*
                 항해 상태(NavigationalStatus) 분포 — 수평 막대.
-                航行状態(NavigationalStatus)分布 — 水平バー。
                 Navigational status breakdown — horizontal bars.
             */}
             <ChartCard
@@ -656,7 +634,6 @@ const Analytics: FC = (): ReactElement => {
 
             {/*
                 세션 경보 심각도별 집계(전역 alertFeed 기반).
-                セッション警報の深刻度別集計(グローバルalertFeedベース)。
                 Session alert counts by severity (from the global alert feed).
             */}
             <ChartCard
@@ -702,7 +679,6 @@ const Analytics: FC = (): ReactElement => {
 
           {/*
               최고 속도 상위 10척 — 행 클릭 시 해당 선박 선택 후 대시보드로 이동.
-              最速上位10隻 — 行クリックで当該船舶を選択しダッシュボードへ移動。
               Top-10 fastest vessels — clicking a row selects the ship and opens the dashboard.
           */}
           <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">

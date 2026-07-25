@@ -1,5 +1,4 @@
 // 개별 선박 모델: 항해/정박 모션 및 시각 구분
-// 個別船舶モデル：航海/停泊モーションと視覚的区別
 // Individual Ship Model: Sailing/Moored motion and visual distinction
 import type { ReactElement, FC } from "react";
 import { useRef, useEffect } from "react";
@@ -13,7 +12,6 @@ interface ShipProps {
 }
 
 // 대시보드와 동일: 0.5노트 초과 = 항해 중, 이하 = 정박
-// ダッシュボードと同様：0.5ノット超＝航海中、以下＝停泊
 // Same as dashboard: above 0.5 kn = sailing, below = moored.
 const SPEED_MOORED_THRESHOLD = 0.5;
 
@@ -36,7 +34,6 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
   const isMoored: boolean = !isMoving;
 
   // 탭 전환·창 최소화 시 흔들림 일시정지, 다시 포커스하면 멈춘 시점부터 이어짐
-  // タブ切替・最小化で揺れ一時停止、フォーカス戻すと再開
   // Pause motion when tab hidden; resume from same state on focus.
   useEffect(() => {
     const onVisibilityChange = () => {
@@ -52,7 +49,6 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
     if (ref === null) return;
 
     // 1) 피치·롤 보간 (선박 흔들림)
-    // 1) ピッチ・ロール補間（船の揺れ）
     // 1) Pitch/roll interpolation (ship motion).
     const p = data.motion?.pitch ?? 0;
     const r = data.motion?.roll ?? 0;
@@ -63,14 +59,12 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
     baseRollRef.current += (targetRoll - baseRollRef.current) * delta * 2;
 
     // 2) 헤딩(방향) 적용
-    // 2) ヘディング（方向）を適用
     // 2) Apply heading (direction).
     const headingDeg = data.heading || 0;
     const targetHeading = (headingDeg * Math.PI) / 180;
     ref.rotation.y = -targetHeading;
 
     // 3) 수면 요동(바다 흔들림) 보간
-    // 3) 水面のうねり（海の揺れ）補間
     // 3) Wave bobbing (slight up/down and tilt).
     if (!isPausedRef.current) {
       bobRef.current += delta;

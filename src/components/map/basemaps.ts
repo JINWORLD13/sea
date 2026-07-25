@@ -1,7 +1,5 @@
 // 베이스맵 정의: 설정(settings.basemap / settings.seamarks)에 따라 지도가
 // 사용할 타일 URL과 저작자 표시(attribution)를 한 곳에서 관리한다.
-// ベースマップ定義：設定（settings.basemap / settings.seamarks）に応じて地図が
-// 使用するタイルURLと帰属表示（attribution）を一元管理する。
 // Basemap definitions: single source of truth for tile URLs and attributions
 // driven by settings.basemap / settings.seamarks.
 
@@ -13,7 +11,6 @@ export interface BasemapDefinition {
   attribution: string;
   maxZoom: number;
   // 타일이 없는 영역에 보이는 지도 배경색(다크/라이트 지도에 맞춤).
-  // タイルのない領域に見える地図の背景色（ダーク/ライト地図に合わせる）。
   // Map background behind missing tiles, matched to the tile style.
   background: string;
 }
@@ -62,7 +59,6 @@ export const BASEMAPS: Record<BasemapId, BasemapDefinition> = {
 };
 
 // OpenSeaMap 항로표지(seamark) 오버레이. 베이스맵 위에 겹쳐 그린다.
-// OpenSeaMap航路標識（seamark）オーバーレイ。ベースマップの上に重ねて描く。
 // OpenSeaMap seamark overlay, rendered on top of the active basemap.
 export const SEAMARK_OVERLAY = {
   url: "https://tiles.openseamap.org/seamark/{z}/{x}/{y}.png",

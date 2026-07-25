@@ -1,5 +1,4 @@
 // 상황 통계 바 (선박 수, 상태 범례, 공유·내보내기)
-// 状況統計バー（船舶数、状態凡例、共有・エクスポート）
 // Status bar: ship count, legend, share & export.
 import { Activity, Share2, FileDown } from "lucide-react";
 import { useShipStore, selectDisplayShips } from "../../store/useShipStore";
@@ -13,7 +12,6 @@ interface StatsBarProps {
 }
 
 // CSV 필드 이스케이프: 쉼표/따옴표/개행이 포함되면 RFC 4180 방식으로 감싼다.
-// CSVフィールドのエスケープ：カンマ／引用符／改行を含む場合はRFC 4180方式で囲む。
 // Escape a CSV field per RFC 4180 when it contains commas, quotes or newlines.
 const csvField = (value: string | number | null | undefined): string => {
   const text = value === null || value === undefined ? "" : String(value);
@@ -31,7 +29,6 @@ const StatsBar = ({
 
   const handleShare = () => {
     // 선택 선박이 있으면 ?mmsi= 딥링크를, 없으면 앱 루트 링크를 공유한다.
-    // 選択船舶があれば ?mmsi= ディープリンクを、なければアプリのルートを共有。
     // Share a ?mmsi= deep link when a vessel is selected, the app root otherwise.
     const url = selectedMmsi
       ? window.location.origin + "/?mmsi=" + encodeURIComponent(selectedMmsi)
@@ -52,7 +49,6 @@ const StatsBar = ({
     const store = useShipStore.getState();
     let ships = Object.values(selectDisplayShips(store));
     // 함대 모드에서는 화면 통계와 동일하게 함대 선박만 내보낸다.
-    // 艦隊モードでは画面の統計と同様に艦隊船舶のみをエクスポートする。
     // In fleet mode export exactly what the stats show: fleet vessels only.
     if (store.activeFleetOnly && store.fleetMmsis.length > 0) {
       const fleetSet = new Set(store.fleetMmsis);

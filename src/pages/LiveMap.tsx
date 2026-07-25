@@ -20,10 +20,6 @@ const LiveMap = (): ReactElement => {
    */
   /**
    * [JA]
-   * <div(コンテナ)>
-   *  <div(オーバーレイボックス)>
-   *    <h2>タイトル</h2>
-   *    <p>ストリーム状態 (connecting/live/reconnecting/error)</p>
    *  </div>
    *  <ShipMap />
    * </div>
@@ -40,7 +36,6 @@ const LiveMap = (): ReactElement => {
    */
 
   // 스트림 상태에 따른 표시 속성: connecting/reconnecting=호박색, live=에메랄드, error=로즈, idle=슬레이트
-  // ストリーム状態に応じた表示属性：connecting/reconnecting=アンバー、live=エメラルド、error=ローズ、idle=スレート
   // Display attributes per stream state: connecting/reconnecting=amber, live=emerald, error=rose, idle=slate.
   const resolveStreamIndicator = (): {
     dotClass: string;
@@ -88,7 +83,6 @@ const LiveMap = (): ReactElement => {
   const indicator = resolveStreamIndicator();
 
   // isolate: 헤더 드롭다운이 Leaflet 페인 위에 오도록 스태킹 컨텍스트를 격리한다.
-  // isolate：ヘッダードロップダウンがLeafletペインの上に来るようスタッキングコンテキストを分離する。
   // isolate: contain Leaflet pane z-indexes so header dropdowns stack above the map.
   const containerStyle: string =
     "h-[calc(100vh-8rem)] bg-[#0b0e14] rounded-2xl shadow-2xl border border-white/10 overflow-hidden relative isolate";

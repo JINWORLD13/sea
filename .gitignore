@@ -29,4 +29,6 @@ dist-ssr
 *.sln
 *.sw?
 
+# 개인 메모 / 비공개 포트폴리오 원고 (Personal notes & private portfolio drafts)
 NOTION_PORTFOLIO.md
+STUDY.md

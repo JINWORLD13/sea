@@ -1,5 +1,4 @@
 // 헤더: 검색창(로컬+프록시 캐시 병합), 알림 피드, 지역/스트림 상태를 표시합니다.
-// ヘッダー：検索バー（ローカル＋プロキシキャッシュ統合）、アラートフィード、地域/ストリーム状態を表示します。
 // Header: Displays search bar (local + proxy cache merged), alert feed, and region/stream status.
 import type { ReactElement, FC, ChangeEvent, KeyboardEvent } from "react";
 import { useState, useEffect, useMemo, useRef } from "react";
@@ -25,7 +24,7 @@ import { useShipSnapshot } from "../../hooks/useShipSnapshot";
 
 const SEARCH_DEBOUNCE_MS: number = 300;
 const MAX_AUTOCOMPLETE_ITEMS: number = 8;
-// 프록시 캐시 검색에서 추가로 붙일 최대 항목 수 (プロキシキャッシュ検索から追加する最大件数 / Max extra rows appended from the proxy cache search)
+// 프록시 캐시 검색에서 추가로 붙일 최대 항목 수 (Max extra rows appended from the proxy cache search)
 const MAX_REMOTE_ITEMS: number = 6;
 const MIN_REMOTE_QUERY_LENGTH: number = 2;
 const REMOTE_SEARCH_LIMIT: number = 20;
@@ -33,11 +32,11 @@ const MAX_BADGE_COUNT: number = 99;
 const ALERT_AGE_REFRESH_MS: number = 30_000;
 
 interface HeaderProps {
-  // 햄버거 클릭 시 모바일 드로어 열기 (ハンバーガークリックでモバイルドロワーを開く / Open the mobile drawer on hamburger click)
+  // 햄버거 클릭 시 모바일 드로어 열기 (Open the mobile drawer on hamburger click)
   onMenuClick: () => void;
 }
 
-// 프록시 GET /search 응답 행 (계약 §1) (プロキシ GET /search のレスポンス行（契約§1） / Proxy GET /search response row (contract §1))
+// 프록시 GET /search 응답 행 (계약 §1) — Proxy GET /search response row (contract §1)
 interface RemoteSearchHit {
   mmsi: string;
   name: string | null;
@@ -48,7 +47,7 @@ interface RemoteSearchHit {
   kind: ShipKind;
 }
 
-// 로컬/원격 결과를 병합한 표시용 행 (ローカル/リモート結果を統合した表示用行 / Unified display row merged from local/remote results)
+// 로컬/원격 결과를 병합한 표시용 행 — Unified display row merged from local/remote results
 interface SearchResultItem {
   mmsi: string;
   name: string;
@@ -60,7 +59,7 @@ interface SearchResultItem {
   source: "local" | "remote";
 }
 
-// 스트림 상태별 시각 속성 (ストリーム状態ごとの視覚属性 / Visual attributes per stream state)
+// 스트림 상태별 시각 속성 (Visual attributes per stream state)
 const STREAM_STATE_META: Record<
   AisStreamStatus["state"],
   { dot: string; text: string; box: string }
@@ -92,14 +91,14 @@ const STREAM_STATE_META: Record<
   },
 };
 
-// 심각도 점 색상 (深刻度ドットの色 / Severity dot colors)
+// 심각도 점 색상 (Severity dot colors)
 const SEVERITY_DOT: Record<AlertEntry["severity"], string> = {
   high: "bg-rose-500",
   medium: "bg-amber-400",
   low: "bg-sky-400",
 };
 
-// 스트림 상태 라벨 (i18n 수집을 위해 리터럴 키 사용) (ストリーム状態ラベル（i18n収集のためリテラルキーを使用） / Stream state label (literal keys so the i18n pass can collect them))
+// 스트림 상태 라벨 (i18n 수집을 위해 리터럴 키 사용) — Stream state label (literal keys so the i18n pass can collect them)
 const getStreamStateLabel = (
   t: TFunction,
   state: AisStreamStatus["state"],
@@ -118,7 +117,7 @@ const getStreamStateLabel = (
   }
 };
 
-// 알림 경과 시간 포맷 (アラート経過時間のフォーマット / Format elapsed time for an alert entry)
+// 알림 경과 시간 포맷 (Format elapsed time for an alert entry)
 const formatAlertAge = (t: TFunction, timestamp: number): string => {
   const elapsedSec = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
   if (elapsedSec < 5) return t("alertAgeJustNow", "just now");
@@ -137,7 +136,6 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
   const { t } = useTranslation();
   const searchQuery: string = useShipStore((state) => state.searchQuery);
   const setSearchQuery = useShipStore((state) => state.setSearchQuery);
-  const ships = useShipSnapshot({ delayMs: 1000 });
   const selectShip = useShipStore((state) => state.selectShip);
   const setMapCenterOverride = useShipStore(
     (state) => state.setMapCenterOverride,
@@ -154,19 +152,27 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
   const [isRemoteLoading, setIsRemoteLoading] = useState<boolean>(false);
   const [isBellOpen, setIsBellOpen] = useState<boolean>(false);
   const [, setAgeTick] = useState<number>(0);
+
+  // 헤더는 오직 검색 자동완성 때문에 선박 목록이 필요하다. 검색어가 비어 있으면
+  // searchResults가 항상 []이므로, 그동안 스냅샷을 일시정지해 매초 발생하던
+  // 헤더 전체 리렌더를 없앤다. 첫 글자를 입력하면 80ms 안에 재개된다.
+  // The header needs the ship list only for search autocomplete. With an empty
+  // query searchResults is always [], so the snapshot is paused meanwhile —
+  // removing a full header re-render every second. Typing resumes it in 80ms.
+  const isSearching = inputValue.trim().length > 0;
+  const ships = useShipSnapshot({ delayMs: 1000, pause: !isSearching });
+
   const searchRef = useRef<HTMLDivElement>(null);
   const bellRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // 검색어 입력과 싱크 맞추기
-  // 検索語入力とストアの同期
   // Sync input value with store search query.
   useEffect(() => {
     setInputValue(searchQuery);
   }, [searchQuery]);
 
   // 디바운스 처리된 검색 실행
-  // デバウンス処理された検索実行
   // Run search with debounce.
   useEffect(() => {
     const timer: ReturnType<typeof setTimeout> = setTimeout(() => {
@@ -180,7 +186,6 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
   }, [inputValue, setSearchQuery]);
 
   // 프록시 캐시 검색: 디바운스된 검색어가 바뀔 때마다 /search 를 조회하고 이전 요청은 중단한다.
-  // プロキシキャッシュ検索：デバウンスされた検索語が変わるたびに /search を照会し、前のリクエストは中断する。
   // Proxy cache search: query /search whenever the debounced term changes; abort the previous request.
   useEffect(() => {
     const q = searchQuery.trim();
@@ -211,7 +216,6 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
       })
       .catch(() => {
         // 중단된 요청은 무시하고, 실패 시 원격 결과 없이 로컬 결과만 유지한다.
-        // 中断されたリクエストは無視し、失敗時はリモート結果なしでローカル結果のみ維持する。
         // Ignore aborted requests; on failure keep local results only.
         if (controller.signal.aborted) return;
         setRemoteResults([]);
@@ -224,7 +228,6 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
   }, [searchQuery]);
 
   // 드롭다운 바깥 클릭 시 닫기 (검색 + 알림 공통)
-  // ドロップダウンの外側クリックで閉じる（検索＋通知共通）
   // Close dropdowns on outside click (search + notifications).
   useEffect(() => {
     if (!isDropdownOpen && !isBellOpen) return;
@@ -244,7 +247,6 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
   }, [isDropdownOpen, isBellOpen]);
 
   // 알림 패널이 열려 있는 동안 경과 시간 표시를 주기적으로 갱신한다.
-  // 通知パネルが開いている間、経過時間表示を定期的に更新する。
   // While the alert panel is open, periodically refresh the age labels.
   useEffect(() => {
     if (!isBellOpen) return;
@@ -257,7 +259,6 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
   }, [isBellOpen]);
 
   // 로컬 스냅샷 즉시 매칭 + 원격 캐시 결과 병합 (MMSI 기준 중복 제거, 로컬 우선)
-  // ローカルスナップショットの即時マッチ＋リモートキャッシュ結果の統合（MMSI基準で重複排除、ローカル優先）
   // Instant local snapshot matches merged with remote cache hits (dedupe by MMSI, local first).
   const searchResults = useMemo((): SearchResultItem[] => {
     const q = inputValue.trim();
@@ -303,7 +304,6 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
 
   const handleSelectResult = (item: SearchResultItem): void => {
     // 원격 전용 결과도 동일: 지도 중심 이동 후 선택 (선박은 이후 스트림으로 채워질 수 있음)
-    // リモート専用結果も同様：地図中心を移動してから選択（船舶はその後ストリームで補完され得る）
     // Same for remote-only hits: recenter the map, then select (the ship may be filled in by the stream later).
     setMapCenterOverride(item.lat, item.lng);
     selectShip(item.mmsi);
@@ -363,14 +363,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
    */
   /**
    * [JA]
-   * <header(ヘッダー)>
-   *  <div(左セクション)>
-   *    <button(モバイルメニュー — ドロワーを開く)>
-   *    <div(検索バーエリア — ローカル＋キャッシュ統合オートコンプリート)>
    *  </div>
-   *  <div(右セクション)>
-   *    <div(通知ベル＋アラートフィードドロップダウン)>
-   *    <div(現在の地域＋ストリーム状態チップ)>
    *  </div>
    * </header>
    */
@@ -400,7 +393,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
           <Menu size={24} className="text-slate-400" />
         </button>
 
-        {/* 선박 검색 + 자동완성 (船舶検索 + オートコンプリート / Ship Search + Autocomplete) */}
+        {/* 선박 검색 + 자동완성 (Ship Search + Autocomplete) */}
         <div className="relative" ref={searchRef}>
           <Search
             size={20}
@@ -483,7 +476,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
       </div>
 
       <div className="flex items-center gap-2 sm:gap-4">
-        {/* 알림 벨 + 알림 피드 (通知ベル＋アラートフィード / Notification bell + alert feed) */}
+        {/* 알림 벨 + 알림 피드 (Notification bell + alert feed) */}
         <div className="relative" ref={bellRef}>
           <button
             type="button"
@@ -576,7 +569,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
 
         <div className="h-8 w-px bg-white/5 mx-1 hidden sm:block"></div>
 
-        {/* 현재 지역 + 스트림 상태 (現在の地域＋ストリーム状態 / Current region + stream status) */}
+        {/* 현재 지역 + 스트림 상태 (Current region + stream status) */}
         <div className="flex items-center gap-4">
           <div className="text-right hidden md:block">
             <p className="text-sm font-black text-white uppercase tracking-wider">

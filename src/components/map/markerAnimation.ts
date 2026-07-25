@@ -1,14 +1,11 @@
 // 데드레커닝 마커 애니메이션: 모든 마커가 하나의 rAF 티커를 공유하며,
 // React 리렌더 없이 Leaflet setLatLng로 표시 위치를 목표 위치까지 보간한다.
-// デッドレコニング・マーカーアニメーション：全マーカーが単一のrAFティッカーを共有し、
-// React再レンダリングなしにLeafletのsetLatLngで表示位置を目標位置まで補間する。
 // Dead-reckoning marker animation: every marker shares a single rAF ticker and
 // interpolates displayed -> target position via Leaflet setLatLng, with no
 // per-frame React re-render.
 import type { LatLngExpression } from "leaflet";
 
 // setLatLng만 있으면 어떤 Leaflet 레이어든 움직일 수 있다(Marker, CircleMarker 등).
-// setLatLngさえあればどのLeafletレイヤーでも動かせる（Marker, CircleMarkerなど）。
 // Anything with setLatLng can be tweened (Marker, CircleMarker, ...).
 export interface MovableLayer {
   setLatLng: (latlng: LatLngExpression) => unknown;
@@ -29,7 +26,6 @@ let rafId: number | null = null;
 let reducedMotionQuery: MediaQueryList | null = null;
 
 // 사용자 OS의 "모션 줄이기" 설정. MQL은 한 번만 생성해 재사용한다.
-// ユーザーOSの「視差効果を減らす」設定。MQLは一度だけ生成して再利用する。
 // OS-level prefers-reduced-motion; the MediaQueryList is created once.
 export const prefersReducedMotion = (): boolean => {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
@@ -74,8 +70,6 @@ const ensureTicker = (): void => {
 
 // 표시 위치(from)에서 목표 위치(to)까지 duration 동안 선형 보간한다.
 // 같은 key로 다시 호출하면 기존 트윈을 대체한다(최신 목표 우선).
-// 表示位置(from)から目標位置(to)までdurationの間、線形補間する。
-// 同じkeyで再呼び出しすると既存のトゥイーンを置き換える（最新の目標を優先）。
 // Lerp displayed (from) -> target (to) over duration. Re-invoking with the
 // same key replaces the running tween (latest target wins).
 export const moveLayersSmoothly = (
@@ -98,7 +92,6 @@ export const moveLayersSmoothly = (
 };
 
 // 애니메이션 없이 즉시 목표 위치로 스냅한다(대점프/저줌/다수 렌더 시).
-// アニメーションなしで即座に目標位置へスナップする（大ジャンプ/低ズーム/大量レンダー時）。
 // Snap straight to the target position (large jump / low zoom / many ships).
 export const snapLayers = (
   key: string,
@@ -112,7 +105,6 @@ export const snapLayers = (
 };
 
 // 마커 언마운트 시 잔여 트윈을 정리한다.
-// マーカーのアンマウント時に残りのトゥイーンを整理する。
 // Drop a pending tween when its marker unmounts.
 export const cancelTween = (key: string): void => {
   tweens.delete(key);
@@ -120,8 +112,6 @@ export const cancelTween = (key: string): void => {
 
 // 탭이 백그라운드로 가면 rAF가 멈추므로, 진행 중인 트윈을 목표 지점으로
 // 즉시 스냅해 복귀 시 마커가 과거 위치에 남지 않게 한다.
-// タブがバックグラウンドに移るとrAFが止まるため、進行中のトゥイーンを目標地点へ
-// 即時スナップし、復帰時にマーカーが過去の位置に残らないようにする。
 // When the tab is hidden rAF stalls, so finish all tweens immediately to avoid
 // stale marker positions on return.
 if (typeof document !== "undefined") {

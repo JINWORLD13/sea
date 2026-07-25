@@ -1,5 +1,4 @@
 // 사이드바 메뉴: 페이지 간 이동을 위한 메뉴를 표시합니다. lg 미만에서는 오프캔버스 드로어로 동작합니다.
-// サイドバーメニュー：ページ間の遷移のためのメニューを表示します。lg未満ではオフキャンバスドロワーとして動作します。
 // Sidebar Menu: Displays the menu for navigating between pages. Below lg it behaves as an off-canvas drawer.
 import type { ReactElement, FC } from "react";
 import { useEffect } from "react";
@@ -9,9 +8,9 @@ import { Home, Map, Anchor, Settings, Activity } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
 interface SidebarProps {
-  // 모바일 드로어 열림 여부 (モバイルドロワーの開閉状態 / Whether the mobile drawer is open)
+  // 모바일 드로어 열림 여부 (Whether the mobile drawer is open)
   open: boolean;
-  // 드로어 닫기 콜백 (ドロワーを閉じるコールバック / Callback to close the drawer)
+  // 드로어 닫기 콜백 (Callback to close the drawer)
   onClose: () => void;
 }
 
@@ -21,7 +20,7 @@ interface NavItem {
   Icon: LucideIcon;
 }
 
-// 주 네비게이션 항목 (メインナビゲーション項目 / Primary navigation items)
+// 주 네비게이션 항목 (Primary navigation items)
 const NAV_ITEMS: NavItem[] = [
   { to: "/dashboard", labelKey: "navDashboard", Icon: Home },
   { to: "/map", labelKey: "navLiveMap", Icon: Map },
@@ -29,7 +28,7 @@ const NAV_ITEMS: NavItem[] = [
   { to: "/analytics", labelKey: "navAnalytics", Icon: Activity },
 ];
 
-// NavLink 활성/비활성 클래스 빌더 (NavLinkのアクティブ/非アクティブクラスビルダー / NavLink active/inactive class builder)
+// NavLink 활성/비활성 클래스 빌더 (NavLink active/inactive class builder)
 const buildNavLinkClass = (navInfo: { isActive: boolean }): string => {
   const baseClass =
     "flex items-center gap-4 px-4 py-3.5 rounded-xl transition-all ";
@@ -57,7 +56,7 @@ const buildSettingsLinkClass = (navInfo: { isActive: boolean }): string => {
 const Sidebar: FC<SidebarProps> = ({ open, onClose }): ReactElement => {
   const { t } = useTranslation();
 
-  // 드로어가 열려 있을 때 Escape 키로 닫기 (ドロワーが開いている時にEscapeキーで閉じる / Close the open drawer with the Escape key)
+  // 드로어가 열려 있을 때 Escape 키로 닫기 (Close the open drawer with the Escape key)
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent): void => {
@@ -86,16 +85,9 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }): ReactElement => {
    */
   /**
    * [JA]
-   * <>(フラグメント)
-   *  <div(モバイルバックドロップ — クリックでドロワーが閉じる、lg以上では非表示)>
-   *  <aside(サイドバー — lg未満はtranslate-xオフキャンバス)>
-   *   <div(ロゴセクション)>
-   *   <nav(メニューナビゲーション)>
    *     <ul>
-   *       <li><NavLink(ダッシュボード/ライブマップ/艦隊ステータス/分析)></li>
    *     </ul>
    *   </nav>
-   *   <div(設定リンク)>
    *  </aside>
    * </>
    */
@@ -121,7 +113,7 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }): ReactElement => {
 
   return (
     <>
-      {/* 모바일 백드롭 (モバイルバックドロップ / Mobile backdrop) */}
+      {/* 모바일 백드롭 (Mobile backdrop) */}
       {open && (
         <div
           className="fixed inset-0 z-40 bg-slate-950/70 backdrop-blur-sm lg:hidden"
@@ -139,7 +131,6 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }): ReactElement => {
 
         {/*
           주 네비게이션: 대시보드 / 라이브 맵 / 함대 상태 / 분석
-          メインナビゲーション：ダッシュボード / ライブマップ / 艦隊ステータス / 分析
           Primary navigation: Dashboard / Live Map / Fleet Status / Analytics
         */}
         <nav
@@ -166,7 +157,6 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }): ReactElement => {
 
         {/*
           설정
-          設定
           Settings
         */}
         <div className="p-4 border-t border-white/5">

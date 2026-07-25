@@ -1,7 +1,5 @@
 // 알림 목록: 전역 알림 피드(지오펜스 진입 / CPA 충돌 위험)를 표시합니다.
 // 선박 선택 여부와 무관하게 관제 구역 전체의 알림을 보여줍니다.
-// アラートリスト：グローバルアラートフィード（ジオフェンス進入／CPA衝突リスク）を表示します。
-// 船舶の選択有無に関係なく、管制海域全体のアラートを表示します。
 // Alert List: Renders the global alert feed (geofence entries / CPA collision
 // risk) for the whole coverage area — works with no vessel selected.
 import { useEffect, useState } from "react";
@@ -12,13 +10,11 @@ import { useTranslation } from "react-i18next";
 
 interface AlertsProps {
   // 안전 모드에서 패널을 강조 표시한다.
-  // 安全モードでパネルを強調表示する。
   // Highlight the panel while safety mode is active.
   highlighted?: boolean;
 }
 
 // 발생 후 경과 시간을 간결하게 표기 ("12s", "3m", "2h", "1d").
-// 発生後の経過時間を簡潔に表記（"12s"、"3m"、"2h"、"1d"）。
 // Compact age since the alert fired ("12s", "3m", "2h", "1d").
 const formatAge = (timestamp: number): string => {
   const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
@@ -32,7 +28,6 @@ const formatAge = (timestamp: number): string => {
 
 const Alerts = ({ highlighted = false }: AlertsProps) => {
   // 스토어의 전역 알림 피드 (최신순, 최대 100건).
-  // ストアのグローバルアラートフィード（新しい順、最大100件）。
   // Global alert feed from the store (newest first, capped at 100).
   const alertFeed = useShipStore((state) => state.alertFeed);
   const ackFeedAlert = useShipStore((state) => state.ackFeedAlert);
@@ -42,7 +37,6 @@ const Alerts = ({ highlighted = false }: AlertsProps) => {
   const i18n = translation.i18n;
 
   // 경과 시간 표기가 오래되지 않도록 10초마다 리렌더한다.
-  // 経過時間表示が古くならないよう10秒ごとに再レンダーする。
   // Re-render every 10s so displayed ages stay fresh.
   const [, setAgeTick] = useState(0);
   useEffect(() => {
@@ -59,7 +53,6 @@ const Alerts = ({ highlighted = false }: AlertsProps) => {
     : "";
 
   // 활성 알림이 없을 때의 화면
-  // アクティブなアラートがない時の画面
   // Screen when there are no active alerts.
   if (alertFeed.length === 0) {
     const noAlertContent = (
@@ -86,7 +79,6 @@ const Alerts = ({ highlighted = false }: AlertsProps) => {
   }
 
   // 번역 메시지 획득 (피드 메시지는 영어 폴백 텍스트이거나 i18n 키일 수 있음)
-  // 翻訳メッセージの取得（フィードメッセージは英語フォールバックまたはi18nキー）
   // Obtain translated message (feed messages are English fallback text, or an
   // i18n key when one exists).
   const getTranslatedMessage = (msg: string) => {
@@ -100,7 +92,6 @@ const Alerts = ({ highlighted = false }: AlertsProps) => {
   };
 
   // 알림 종류 라벨 (지오펜스 / CPA).
-  // アラート種別ラベル（ジオフェンス／CPA）。
   // Alert kind label (geofence / CPA).
   const getKindLabel = (kind: AlertEntry["kind"]): string =>
     kind === "cpa"

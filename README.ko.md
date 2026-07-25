@@ -13,15 +13,17 @@
 해상 선박 모니터링 및 디지털 트윈 인터페이스 프로젝트입니다.
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?logo=typescript&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-4.0-646CFF?logo=vite&logoColor=white)
-![Three.js](https://img.shields.io/badge/Three.js-r149-black?logo=three.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white)
+![Three.js](https://img.shields.io/badge/Three.js-r182-black?logo=three.js&logoColor=white)
 ![Zustand](https://img.shields.io/badge/State_Management-Zustand-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ## 🚢 프로젝트 개요
 
-이 프로젝트는 자율 운항 및 해양 AI 인지 기술을 바탕으로 한 실시간 선박 모니터링 시스템입니다. AIS(Automatic Identification System) 데이터를 활용하여 선박의 위치를 시각화하고, IoT 센서 데이터를 동기화하여 선박의 상태를 실시간으로 표시하는 디지털 트윈 환경을 구현합니다.
+**실제 전 세계 AIS(Automatic Identification System) 실시간 데이터**를 기반으로 한 선박 관제 인터페이스입니다(모의 데이터 아님). AISStream.io의 위치 스트림을 Node 프록시를 거쳐 받아, 클라이언트에서 충돌 위험(CPA/TCPA)을 계산하고 Leaflet 지도와 Three.js 3D 뷰에 수백 척을 렌더링합니다.
+
+핵심 과제는 **초당 수백 건으로 들어오는 스트림을 브라우저가 렌더링할 수 있는 속도로 낮추는 것**이었고, 프록시 → 스트림 → 스토어 → 렌더 4계층 부하 제어 파이프라인으로 해결했습니다.
 
 ## 🌟 주요 기능
 
@@ -29,44 +31,62 @@
    - 선박의 Heading 데이터를 기반으로 한 사용자 정의 마커 회전 시스템
    - 과거 좌표 데이터를 활용한 선박 경로 예측 및 시각화
 
-2. **디지털 트윈 3D 뷰**
-   - Three.js 및 React Three Fiber를 이용한 고정밀 3D 선박 렌더링
-   - WebSocket을 통한 Pitch 및 Roll 데이터 동기화로 실시간 기동 시뮬레이션
+2. **3D 선박 뷰**
+   - Three.js 및 React Three Fiber 기반 3D 선박 렌더링
+   - 실제 수신되는 방위(heading)와 속도를 Lerp 보간으로 부드럽게 반영
+   - 참고: AIS 규격에는 pitch/roll 정보가 없으므로, 3D 뷰는 실제로 수신되는 값만 반영합니다
 
-3. **고성능 상태 관리**
-   - Zustand를 활용하여 초당 수십 건의 AIS 스트림 데이터 처리 최적화
-   - 변경된 데이터만 업데이트하는 최적화 로직 적용
+3. **충돌 위험 분석 (CPA/TCPA)**
+   - 최근접 거리·시간 직접 계산, 500m/6분 danger · 1,500m/12분 warning 자동 분류
+   - 2초 주기 전체 스캔, 제한 수역 진입 시 지오펜스 알림
 
-4. **글로벌 지원**
-   - i18next를 활용한 한국어, 영어, 일본어 다국어 지원
+4. **고성능 상태 관리**
+   - Zustand 셀렉터 구독 + copy-on-write 갱신
+   - 1초 배치 flush, 화면별 800~1,200ms 스냅샷 스로틀 + `startTransition`
+   - 뷰포트 컬링 → 마커 250개 상한 → 줌 12 미만 픽셀 격자 클러스터링
+   - 마커 이동은 공유 rAF 티커로 보간, **React 리렌더 0회**
+
+5. **글로벌 지원**
+   - i18next를 활용한 한국어, 영어, 일본어 다국어 지원 (브라우저 언어 자동 감지)
 
 ## 🛠 기술 스택
 
-- **프레임워크**: React 19, TypeScript, Vite
-- **상태 관리**: Zustand
+- **프레임워크**: React 19, TypeScript 5.9, Vite 7
+- **상태 관리**: Zustand 5 (셀렉터 기반 구독)
 - **시각화**:
   - **Map**: Leaflet, React-Leaflet
   - **3D**: Three.js, @react-three/fiber, @react-three/drei
+- **백엔드(프록시)**: Node.js, Express 5, `ws` — API 키 은닉·AIS 필드 정규화·캐시·레이트리밋
 - **스타일링**: Tailwind CSS, Lucide React
-- **통신**: WebSocket (AISStream API)
+- **데이터 소스**: AISStream.io (전 세계 실시간 AIS WebSocket)
+- **국제화**: i18next (한국어 · 영어 · 일본어)
 
 ## 📂 프로젝트 구조
 
 ```text
 seatrace/
+├── server/
+│   └── proxy.js          # AIS 프록시: 키 은닉·정규화·캐시·레이트리밋
 ├── src/
+│   ├── store/
+│   │   ├── aisStream.ts  # WebSocket 클라이언트·배치·재접속·구독 관리
+│   │   ├── useShipStore.ts # Zustand 스토어 + CPA/지오펜스 위험도 계산
+│   │   ├── shipTypes.ts  # 도메인 타입 정의
+│   │   ├── config.ts     # 튜닝 상수 (한 곳에 모아 조정 가능)
+│   │   └── persistence.ts # localStorage 웜 캐시·설정·함대
 │   ├── components/
 │   │   ├── 3d/           # Three.js / React Three Fiber (Ship, Scene)
-│   │   ├── dashboard/   # ModeSwitcher, StatsBar, Alerts
-│   │   ├── layout/      # App 레이아웃, Sidebar, Header
-│   │   └── map/         # Leaflet 지도 및 선박 마커
-│   ├── store/            # Zustand (선박, CPA/지오펜싱, tick)
+│   │   ├── dashboard/    # ModeSwitcher, StatsBar, Alerts
+│   │   ├── layout/       # App 레이아웃, Sidebar, Header
+│   │   └── map/          # Leaflet 지도·마커·클러스터·rAF 보간
+│   ├── hooks/
+│   │   └── useShipSnapshot.ts # 렌더 스로틀링 훅
 │   ├── utils/            # 해상 수학 (CPA, latLngToXY, cogSogToVelocity)
-│   ├── constants/        # 번역( i18n ), 해역, 목적항 목록
+│   ├── constants/        # 번역 (i18n)
 │   ├── i18n.ts           # i18next 설정 및 언어 감지
 │   └── pages/            # Dashboard, LiveMap, FleetStatus, Analytics, Settings
 ├── public/
-└── .env                  # VITE_AISSTREAM_API_KEY (선택, 실시간 AIS용)
+└── .env                  # AISSTREAM_API_KEY (서버 전용, git 추적 제외)
 ```
 
 ## 🚀 시작 가이드
@@ -86,7 +106,18 @@ seatrace/
 3. 환경 변수를 설정합니다. (.env)
 
    ```
-   VITE_AISSTREAM_API_KEY=your_api_key_here
+   AISSTREAM_API_KEY=your_api_key_here
+   PROXY_PORT=8081
+   ```
+
+   > `VITE_AISSTREAM_API_KEY`가 **아니라** `AISSTREAM_API_KEY`를 사용하세요.
+   > Vite는 `VITE_` 접두사가 붙은 변수를 클라이언트 번들에 그대로 인라인하므로,
+   > 개발자 도구를 여는 누구에게나 키가 노출됩니다. 키가 필요한 건 프록시 프로세스뿐입니다.
+
+4. 프론트엔드와 프록시 서버를 함께 실행합니다.
+
+   ```bash
+   npm run dev
    ```
 
 ### 데이터 흐름
@@ -98,25 +129,29 @@ seatrace/
 ### 1. 고주파 WebSocket 데이터 처리 최적화
 
 - **문제**: 대량의 AIS 데이터(수백 척의 선박)가 실시간으로 유입될 때 지도 마커의 깜빡임과 전반적인 성능 저하 발생.
+- **해결책** — 4계층 부하 제어 파이프라인. 각 계층이 서로 다른 종류의 부하를 담당합니다.
+  - **프록시 (`server/proxy.js`)**: 구독 박스 면적 ≤ 0.25 제곱도 강제 검증, 클라이언트당 초당 180 msg / 추적 600 MMSI 상한, 5,000척 서버 캐시에서 즉시 스냅샷을 100척 청크로 전송.
+  - **스트림 (`aisStream.ts`)**: MMSI를 key로 하는 `Map`에 병합 누적 후 1초 간격 배치 flush → 같은 배의 연속 보고가 스토어 쓰기 1건으로 축약.
+  - **스토어 (`useShipStore.ts`)**: 추적 500척 상한, 20분 미수신 자동 정리. CPA/지오펜스를 **단일 패스 copy-on-write**로 계산해 선박당 1회씩 발생하던 전체 복사·구독자 알림을 **최대 1회**로 축소.
+  - **렌더 (`useShipSnapshot.ts` + `map/`)**: 화면별 800~1,200ms 스냅샷 스로틀을 `startTransition` 안에서 수행, 뷰포트 밖 컬링 후 마커 250개 상한, 줌 12 미만은 64px 픽셀 격자 클러스터링.
+
+### 2. 마커를 리렌더 없이 부드럽게 움직이기
+
+- **문제**: AIS 위치 보고는 수 초~수십 초 간격으로 불규칙하게 도착해 마커가 순간이동합니다. 그렇다고 React state로 보간하면 초당 60회 × 250개의 리렌더가 발생합니다.
 - **해결책**:
-  - **Throttled Updates**: Zustand 스토어 내부에 쓰로틀링 메커니즘을 구현하여 상태 업데이트 빈도를 제어했습니다.
-  - **Threshold 필터링**: 선박의 이동 거리가 임계값(예: 0.5m) 미만일 경우 불필요한 상태 업데이트를 생략하도록 로직을 설계했습니다.
-  - **컴포넌트 분리**: 전체 화면 리렌더링을 방지하기 위해 3D 캔버스와 지도 레이어를 독립적인 컨텍스트로 격리했습니다.
+  - **공유 rAF 티커** (`markerAnimation.ts`): 모든 마커가 `requestAnimationFrame` 루프 **하나**를 공유하며 `layer.setLatLng()`으로 Leaflet 레이어를 직접 조작 → **React 리렌더 0회**. 진행 중인 보간이 없으면 티커가 스스로 멈춥니다.
+  - **불연속 구간 스냅**: 500m 이상 점프(신호 유실 후 복귀)는 보간을 건너뛰어, 배가 바다를 가로질러 미끄러지는 것처럼 보이지 않게 했습니다.
+  - **부하에 따른 단계적 저하**: 줌 11 미만이거나 마커 150개 초과 시 보간을 끄고, OS의 `prefers-reduced-motion` 설정을 존중합니다.
+  - **해상 수학**: COG(대지침로)·SOG(대지속력)를 속도 벡터로 변환하는 유틸리티를 만들어, 데드레커닝과 CPA 계산에 함께 사용합니다.
 
-### 2. 정밀한 3D 디지털 트윈 동기화
+### 3. React StrictMode에서 소켓이 유령처럼 남는 문제
 
-- **문제**: 센서로부터 수신되는 Pitch/Roll/Heading 데이터를 3D 모델에 끊김 없이 부드럽게 반영해야 함.
-- **해결책**:
-  - **Lerp 보간**: `MathUtils.lerp` 및 `Slerp`를 사용하여 각도 변화를 시각적으로 부드럽게 연결했습니다.
-  - **해상 수학 활용**: COG(Course Over Ground) 및 SOG(Speed Over Ground) 데이터를 기반으로 예측 위치를 계산하는 유틸리티를 개발했습니다.
-
-### 3. 새로고침 시 실데이터가 사라지고 데모로 폴백되는 문제
-
-- **문제**: 브라우저 새로고침/HMR 시 프록시 재연결 타이밍이 겹치면서 `readyState 0 (CONNECTING)` 예외로 프록시가 종료되고, 프론트가 `isConnected=false`로 떨어져 데모 데이터만 남는 현상이 발생.
-- **해결책**:
-  - **소켓 참조 레이스 제거**: `server/proxy.js`에서 전역 `aisSocket` 재사용 대신 `nextAisSocket` 인스턴스를 캡처해 `onopen/onmessage/onclose`를 바인딩했습니다.
-  - **안전한 send 처리**: `onopen`에서 `nextAisSocket.readyState === WebSocket.OPEN` 확인 후에만 `send`하도록 변경했습니다.
-  - **정상 참조 해제**: `onclose`에서 현재 활성 소켓과 동일한 경우에만 `aisSocket = null` 처리해 교차 종료를 방지했습니다.
+- **문제**: StrictMode의 이펙트 이중 실행으로 정리된 줄 알았던 이전 소켓이 살아남아, `onmessage`가 계속 스토어에 쓰고 재접속 타이머가 계속 발화하면서 데이터 중복과 재접속 폭주가 발생.
+- **해결책** — **세대(generation) 카운터** (`aisStream.ts`):
+  - `startAisStream`/`stopAisStream`이 `streamGeneration`을 **먼저 올린 뒤** 그 값을 캡처합니다. 모든 콜백은 자기 세대가 최신인지 확인하고 아니면 즉시 반환하므로, 이전 세대 콜백은 전부 no-op이 됩니다.
+  - `onclose`도 같은 검사로 **의도적 종료와 예기치 않은 종료를 구분**하고, 후자만 재접속을 예약합니다.
+  - 종료 시 **순서**가 중요합니다 — `activeBounds`를 `null`로 만들기 전에 남은 배치를 flush하고 캐시를 저장해야 합니다(캐시가 bounds로 필터링하기 때문).
+  - 재접속은 지수 백오프(1초 → 30초 상한) + ±20% 지터를 사용하며, **기존 선박 목록은 유지**해 화면이 비지 않습니다.
 
 ### 4. 실시간 대량 선박 렌더링 시 지도 줌/클릭이 느려지는 문제
 
@@ -127,7 +162,25 @@ seatrace/
   - **아이콘 캐시 최적화**: 선박 아이콘(`DivIcon`)을 캐시해 아이콘 재생성 비용을 줄이면서도 실제 heading 회전을 유지했습니다.
   - **자동 뷰 정렬 개선**: 초기 진입 시에만 자동 맞춤(`fitBounds`)하고, 선택/수동 포커스 중에는 자동 이동을 건너뛰도록 처리했습니다.
 
+### 5. 아직 정보가 없는 선박 다루기
+
+- **문제**: AIS는 **위치 메시지(수 초 간격)** 와 **정적 메시지(5~6분 간격)** 가 분리되어 있고, 도착 순서도 보장되지 않습니다. 방금 화면에 들어온 배는 좌표는 있는데 이름·IMO·목적지가 없습니다.
+- **해결책**:
+  - 위치보다 먼저 온 정적 정보는 MMSI별로 보류(최대 300건, 오래된 것부터 축출)했다가, 위치가 도착하는 순간 병합합니다.
+  - 병합 규칙을 의도적으로 비대칭으로 설계했습니다 — **정적 필드는 정보를 "추가"만 하고 `null`로 지우지 않습니다**(보고 종류에 따라 필드가 정상적으로 누락되기 때문). 반면 침로·방위 같은 동적 필드는 명시적 `null`을 받아들여 낡은 값이 화면에 남지 않게 합니다.
+  - 위치 없는 정적 정보만으로는 선박을 만들지 않아, 좌표 (0, 0)의 유령 마커를 방지합니다.
+  - 값을 모를 때는 그럴듯한 기본값으로 채우지 않고 "미상"으로 표시합니다.
+
+## ⚠️ 알려진 한계
+
+의도적인 선택이며, 명확히 밝혀둡니다.
+
+- **AIS 규격에는 pitch/roll 정보가 없습니다.** 이전 버전에서는 3D 뷰에 선체 동요를 넣었지만, 실제 데이터가 뒷받침하지 못한다는 것을 확인하고 제거했습니다. 현재 3D 뷰는 방위와 속도만 반영합니다.
+- **연료 소모량·CO2 배출량 추정 기능도 같은 이유로 제거**했습니다. AIS로는 계산할 수 없는 값이며, 근거 없는 숫자를 관제 대시보드에 띄우는 것은 숫자가 없는 것보다 위험합니다.
+- **Analytics는 과거 데이터가 아니라 현재 세션에서 추적한 선박의 집계**이며, 화면에도 그렇게 표기했습니다.
+- **서버 캐시는 인메모리**라 프록시 재시작 시 사라집니다. 다중 인스턴스로 확장하려면 Redis 같은 외부 저장소가 필요합니다.
+
 ## 🚀 향후 로드맵
 
 - [ ] 과거 AIS 데이터 재생 기능 (Playback) 통합
-- [ ] 브릿지 시뮬레이터를 위한 VR/AR 지원 확장
+- [ ] 다중 인스턴스 배포를 위한 프록시 캐시 외부 저장소화

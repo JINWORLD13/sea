@@ -3,7 +3,7 @@
 // Shared AIS ship-type & navigational-status utilities.
 // Map, dashboard and pages all derive category, color and label keys from here
 // so the visual language stays consistent across the app.
-import type { ShipCategory, ShipEta, ShipKind } from "../store/useShipStore";
+import type { ShipCategory, ShipEta, ShipKind } from "../store/shipTypes";
 
 // AIS 선종 코드(0~99)를 화면용 카테고리로 변환한다.
 // 코드가 없거나 0이면 "unknown", 항로표지/기지국은 kind가 우선한다.

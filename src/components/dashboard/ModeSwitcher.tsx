@@ -1,5 +1,4 @@
 // 운영 모드 선택 버튼 (Fleet / Safety / Marina)
-// 運用モード選択ボタン（Fleet / Safety / Marina）
 // Operation mode switcher (Fleet / Safety / Marina).
 import type { ReactNode } from "react";
 import { Anchor, ShieldAlert, Compass } from "lucide-react";
@@ -35,9 +34,6 @@ const ModeSwitcher = ({ platformMode, onSwitchMode }: ModeSwitcherProps) => {
   // 각 모드가 실제로 하는 일을 정직하게 설명하는 부제를 함께 표기한다:
   // fleet = 등록 함대 필터, safety = 전역 알림 피드 모니터링,
   // marina = 7노트 미만 소형선 필터.
-  // 各モードが実際に行うことを正直に説明するサブラベルを併記する：
-  // fleet＝登録艦隊フィルター、safety＝グローバルアラート監視、
-  // marina＝7ノット未満の小型船フィルター。
   // Each mode carries an honest sublabel describing what it actually does:
   // fleet = registered-fleet filter, safety = global alert-feed monitoring,
   // marina = small-craft (<7 kn) filter.

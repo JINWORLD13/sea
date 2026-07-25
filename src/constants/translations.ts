@@ -1,5 +1,4 @@
 // 다국어 지원을 위한 번역 데이터
-// 多言語対応のための翻訳データ
 // Translation data for i18n.
 export const translations = {
   en: {
@@ -694,38 +693,31 @@ export const translations = {
     showingVessels: "{{total}}척 중 {{shown}}척 표시",
   },
   ja: {
-    // アプリ / ブランド
     appName: "SEATRACE",
     opsConsole: "シートレース運用コンソール",
 
-    // サイドバーナビゲーション
     navDashboard: "ダッシュボード",
     navLiveMap: "ライブマップ",
     navFleetStatus: "船隊ステータス",
     navAnalytics: "分析",
     navSettings: "設定",
 
-    // ダッシュボードモード
     fleetMgr: "船隊管理",
     safetyRisk: "安全リスク",
     tourism: "観光",
 
-    // 地域ボタン
     regionBusan: "釜山",
     regionIncheon: "仁川",
     regionGlobal: "シンガポール",
 
-    // ダッシュボード統計 / ステータス
     activeFleet: "稼働船隊",
     vesselsNearby: "周辺船舶",
     atSea: "航行中",
 
-    // ダッシュボードアクション
     share: "共有",
     export: "エクスポート",
     shareLinkCopied: "公開共有リンクをコピーしました！",
 
-    // ダッシュボードパネル
     fleetDeployment: "船隊配置",
     searchLabel: "検索",
     vessel: "隻",
@@ -735,13 +727,11 @@ export const translations = {
     historicalReplay: "履歴リプレイ",
     pts: "点",
 
-    // 船舶詳細カード
     velocity: "速力",
     energy: "エネルギー",
     dynamics: "動力学",
     atmosphere: "大気",
 
-    // ライブインテリジェンスパネル
     liveIntelligence: "ライブインテリジェンス",
     vesselIdentification: "船舶識別",
     imoNo: "IMO番号",
@@ -751,7 +741,6 @@ export const translations = {
     awaitingTelemetry: "テレメトリ待機中",
     establishConnectionBySelecting: "レーダーマップで船舶を選択して接続を確立してください。",
 
-    // 地図 (ShipMap)
     trackingActive: "追跡中",
     initializeLink: "リンク初期化",
     syncingAisFeed: "AISフィード同期中...",
@@ -761,7 +750,6 @@ export const translations = {
     aisFeedLabel: "AISフィード",
     live: "LIVE",
 
-    // 設定ページ
     settingsTitle: "設定",
     accountProfile: "アカウントプロフィール",
     manageAccountInfo: "アカウント情報を管理",
@@ -772,7 +760,6 @@ export const translations = {
     password2fa: "パスワードと2FA",
     manage: "管理",
 
-    // 分析ページ
     liveDataFeed: "ライブデータフィード",
     avgFleetFuel: "船隊平均燃料",
     operationalEfficiency: "運用効率",
@@ -783,26 +770,21 @@ export const translations = {
     dataUpdatedEvery5s: "5秒ごとにデータ更新",
     operationalEfficiencyDesc: "運用効率は、対地速力（SOG）、推進器RPM、デジタルツインセンサーによるリアルタイム船体抵抗解析を独自に組み合わせて算出されます。",
 
-    // テーブル列
     fuel: "燃料",
 
-    // ヘッダー検索
     searchPlaceholder: "船名またはIDで船舶を検索...",
     noVesselsMatch: "一致する船舶なし",
     operator: "オペレーター #42",
     busanPortControl: "釜山港管制",
     operatorShort: "OP",
 
-    // ライブマップ
     globalCoverageActive: "選択海域アクティブ",
 
-    // 船隊ステータスページ
     realtimeSyncActive: "リアルタイム同期中",
     totalVessels: "総船舶数",
     activeMoored: "航行中 / 係留中",
     vesselDirectory: "船舶ディレクトリ",
 
-    // ページタイトル (一般)
     dashboardTitle: "ダッシュボード",
     monitoring: "リアルタイム監視中",
     systemOnline: "システムオンライン",
@@ -823,12 +805,10 @@ export const translations = {
     digitalTwin: "リアルタイムデジタルツイン",
     interactiveView: "インタラクティブ3Dビュー",
 
-    // 航海詳細
     callSign: "呼出符号",
     destination: "目的地",
     imo: "IMO番号",
 
-    // アラートメッセージ
     alert_high_rpm: "エンジンRPM高",
     alert_wind_gust: "突風を検出",
     alert_latency: "通信遅延",
@@ -836,21 +816,17 @@ export const translations = {
 
     realDataMode: "AIS ライブ",
 
-    // 単位
     kn: "ノット",
     deg: "度",
 
-    // ページタイトル
     analyticsTitle: "分析",
     fleetStatusTitle: "船隊ステータス",
     comingSoon: "近日公開",
     fleetDetailMessage: "詳細な船舶リスト機能は開発中です！",
 
-    // 言語名
     korean: "韓国語",
     english: "英語",
 
-    // エラーメッセージ
     apiKeyMissing: "APIキーが.envファイルにありません！",
     apiKeyMissingError: "APIキーがないため実データに接続できません",
     connectingAis: "AISデータに接続中...",
@@ -859,7 +835,6 @@ export const translations = {
     dataParseError: "データの解析に失敗しました",
     errorOccurred: "エラーが発生しました",
 
-    // 海域
     region: "海域",
     busan: "釜山港",
     incheon: "仁川港",
@@ -867,13 +842,11 @@ export const translations = {
     selectShip: "地図から船舶を選択してください",
     fleetCount: "表示中の船舶",
 
-    // 地図オーバーレイ
     searchResult: "検索結果",
     detectedShips: "検出船舶",
     aisWaiting: "AIS信号を待機中... (ライブ)",
     streamingActive: "リアルタイムストリーミング中",
 
-    // 船隊ステータスと分析 (追加)
     mmsi: "MMSI",
     vesselName: "船名",
     vesselType: "船種",
@@ -884,7 +857,6 @@ export const translations = {
     efficiency: "効率",
     avgEfficiency: "平均効率",
 
-    // AIS 船種ラベル (aisTypes.ts の動的キー)
     shipTypeCargo: "貨物船",
     shipTypeTanker: "タンカー",
     shipTypePassenger: "旅客船",
@@ -898,7 +870,6 @@ export const translations = {
     shipTypeAton: "航路標識",
     shipTypeBase: "基地局",
 
-    // AIS 航行状態ラベル
     navUnderway: "航行中",
     navAnchored: "錨泊中",
     navMoored: "係留中",
@@ -910,7 +881,6 @@ export const translations = {
     navSailing: "帆走中",
     navUnknown: "不明",
 
-    // 船舶詳細ラベル
     navStatusLabel: "航行状態",
     cogLabel: "COG",
     hdgLabel: "HDG",
@@ -921,7 +891,6 @@ export const translations = {
     lastReport: "最終報告",
     speed: "速力",
 
-    // ライブセッション分析
     liveSessionAnalytics: "ライブセッション分析",
     categoryBreakdown: "船種別船舶",
     navStatusBreakdown: "航行状態",
@@ -935,7 +904,6 @@ export const translations = {
     atonCount: "航路標識",
     baseStationCount: "基地局",
 
-    // アラートと重要度
     sessionAlerts: "セッションアラート",
     alertSeverity: "重要度別アラート",
     noAlertsThisSession: "このセッションのアラートなし",
@@ -951,7 +919,6 @@ export const translations = {
     alertAgeMinutes: "{{value}}分前",
     alertAgeHours: "{{value}}時間前",
 
-    // ライブ接続パネル
     aisReconnecting: "AISストリームに再接続中...",
     connAgeAgo: "{{age}}前",
     connCachedVessels: "キャッシュ船舶",
@@ -966,7 +933,6 @@ export const translations = {
     connUpstreamLive: "アップストリーム稼働中",
     connUptime: "アップストリーム稼働時間",
 
-    // ストリーム状態
     streamConnecting: "接続中",
     streamLive: "ライブ",
     streamIdle: "アイドル",
@@ -976,7 +942,6 @@ export const translations = {
     streamReconnecting: "再接続中",
     streamReconnectingDetail: "ライブフィードに再接続中...",
 
-    // ベースマップと地図レイヤー
     mapLayers: "レイヤー",
     basemapOsm: "標準",
     basemapLight: "ライト",
@@ -985,7 +950,6 @@ export const translations = {
     seamarkOverlay: "海上標識",
     moreVesselsHidden: "隻を非表示 — ズームイン",
 
-    // 設定 (地図・接続・データ)
     settingsMapSection: "地図と表示",
     settingsBasemap: "ベースマップ",
     settingsBasemapDesc: "ライブマップの基本タイルレイヤー",
@@ -1004,17 +968,14 @@ export const translations = {
     clearShipCacheNo: "キャンセル",
     clearShipCacheDone: "キャッシュされた船舶データを削除しました",
 
-    // 単位
     unitKnots: "ノット",
     unitKmh: "km/h",
     kmh: "km/h",
 
-    // ダッシュボードモードの説明
     modeFleetDesc: "登録された船隊の船舶のみ",
     modeMarinaDesc: "7ノット未満の小型船舶",
     modeSafetyDesc: "グローバルアラートフィード監視",
 
-    // その他 UI
     mainNavigation: "メインナビゲーション",
     openNavigation: "ナビゲーションメニューを開く",
     exitReplay: "リプレイ終了",
@@ -1022,7 +983,6 @@ export const translations = {
     searchCacheBadge: "キャッシュ",
     searchingCache: "拡張カバレッジを検索中...",
 
-    // 複数行の説明キー
     settingsSpeedUnitDesc: "アプリ全体で船舶の速力に使用する単位",
     settingsSeamarksDesc: "OpenSeaMapのブイ・標識・航路標識を表示",
     settingsTrailsDesc: "選択した船舶の最近の航跡を描画します",
@@ -1042,7 +1002,6 @@ export const translations = {
 };
 
 // 타입 정의 (자동완성 되게 하려고)
-// 型定義（オートコンプリート用）
 // Type definitions (for autocomplete).
 export type Language = "en" | "ko" | "ja";
 export type TranslationKey = keyof typeof translations.en;

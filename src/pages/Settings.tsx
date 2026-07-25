@@ -1,5 +1,4 @@
 // 설정 페이지: 지도/표시 환경설정, 로컬 데이터 관리, 실시간 연결 상태를 제공합니다.
-// 設定ページ:地図/表示の環境設定、ローカルデータ管理、リアルタイム接続状態を提供します。
 // Settings Page: Map/display preferences, local data management and live connection status.
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FC, ReactElement } from "react";
@@ -24,14 +23,11 @@ import type { AppSettings } from "../store/useShipStore";
 
 // 삭제 대상 로컬 캐시 키: 선박 위치 캐시만 지운다.
 // 함대 목록("vts:fleet:v1")과 설정("vts:settings:v1")은 절대 건드리지 않는다.
-// 削除対象のローカルキャッシュキー:船舶位置キャッシュのみ消す。
-// 艦隊リスト("vts:fleet:v1")と設定("vts:settings:v1")には決して触れない。
 // Local cache keys eligible for clearing: ONLY the last-known vessel cache.
 // The fleet list ("vts:fleet:v1") and settings ("vts:settings:v1") are never touched.
 const SHIP_CACHE_KEYS: readonly string[] = [
   "vts:last-known-ais-ships:v2",
   // 마이그레이션 잔여물인 구버전 키도 함께 정리한다.
-  // マイグレーション残骸の旧バージョンキーも一緒に掃除する。
   // Also sweep the legacy v1 key left over from the cache migration.
   "vts:last-known-ais-ships:v1",
 ];
@@ -40,7 +36,6 @@ const HEALTH_POLL_INTERVAL_MS = 15_000;
 const CLEARED_NOTICE_MS = 4_000;
 
 // 프록시 /health 응답(방어적 파싱: 필드는 모두 선택적).
-// プロキシ /health レスポンス(防御的パース:全フィールド任意)。
 // Proxy /health response (parsed defensively: every field optional).
 interface ProxyHealth {
   ok?: boolean;
@@ -57,7 +52,6 @@ type HealthState =
   | { phase: "ready"; data: ProxyHealth; fetchedAt: number };
 
 // 언어 이름은 각 언어의 고유 표기이므로 번역 대상이 아니다.
-// 言語名は各言語の固有表記のため翻訳対象外。
 // Language names are endonyms and intentionally not translated.
 const LANGUAGE_OPTIONS: readonly { code: string; label: string }[] = [
   { code: "en", label: "English" },
@@ -66,7 +60,6 @@ const LANGUAGE_OPTIONS: readonly { code: string; label: string }[] = [
 ];
 
 // 밀리초를 "3h 24m" 형태의 짧은 지속시간 문자열로 변환.
-// ミリ秒を "3h 24m" 形式の短い経過時間文字列に変換。
 // Format milliseconds as a short duration string like "3h 24m".
 const formatDuration = (ms: number): string => {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
@@ -84,7 +77,6 @@ interface ToggleSwitchProps {
 }
 
 // 접근성을 갖춘 실제 동작하는 토글 스위치(기존의 장식용 div 토글을 대체).
-// アクセシブルで実際に動作するトグルスイッチ(従来の飾りdivトグルを置換)。
 // Accessible, genuinely functional toggle switch (replaces the old decorative div).
 const ToggleSwitch: FC<ToggleSwitchProps> = ({ checked, onChange, ariaLabel }) => (
   <button
@@ -118,7 +110,6 @@ interface SegmentedControlProps {
 }
 
 // 세그먼트 컨트롤: 소수의 상호배타 옵션 선택용.
-// セグメントコントロール:少数の排他的オプション選択用。
 // Segmented control for a small set of mutually exclusive options.
 const SegmentedControl: FC<SegmentedControlProps> = ({
   options,
@@ -157,7 +148,6 @@ interface SettingRowProps {
 }
 
 // 설정 한 줄: 아이콘 + 제목/설명 + 우측 컨트롤.
-// 設定1行:アイコン + タイトル/説明 + 右側コントロール。
 // One settings row: icon + title/description + trailing control.
 const SettingRow: FC<SettingRowProps> = ({ icon, title, description, control }) => (
   <div className="p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:justify-between">
@@ -194,7 +184,6 @@ const Settings: FC = (): ReactElement => {
   const currentRegion = useShipStore((state) => state.currentRegion);
 
   // ── 실시간 연결 패널: 마운트 시 + 15초마다 /health 폴링 ──
-  // ── リアルタイム接続パネル:マウント時 + 15秒毎に /health をポーリング ──
   // ── Live connection panel: poll /health on mount + every 15s ──
   const [health, setHealth] = useState<HealthState>({ phase: "loading" });
   const abortRef = useRef<AbortController | null>(null);
@@ -212,7 +201,6 @@ const Settings: FC = (): ReactElement => {
       setHealth({ phase: "ready", data, fetchedAt: Date.now() });
     } catch {
       // 중단(abort)은 언마운트/재요청 시의 정상 흐름이므로 에러로 표시하지 않는다.
-      // 中断(abort)はアンマウント/再要求時の正常フローなのでエラー表示しない。
       // Aborts are the normal unmount/refetch path — don't surface them as errors.
       if (!controller.signal.aborted) {
         setHealth({ phase: "error", fetchedAt: Date.now() });
@@ -232,7 +220,6 @@ const Settings: FC = (): ReactElement => {
   }, [loadHealth]);
 
   // ── 캐시 삭제: 파괴적 동작이므로 반드시 인라인 2단계 확인을 거친다 ──
-  // ── キャッシュ削除:破壊的操作のため必ずインライン2段階確認を経る ──
   // ── Cache clearing: destructive, so it always goes through an inline confirm ──
   const [confirmingClear, setConfirmingClear] = useState<boolean>(false);
   const [cacheCleared, setCacheCleared] = useState<boolean>(false);
@@ -245,7 +232,6 @@ const Settings: FC = (): ReactElement => {
       }
     } catch {
       // 스토리지 접근 불가(프라이빗 모드 등)면 조용히 무시한다.
-      // ストレージ不可(プライベートモード等)なら静かに無視する。
       // Storage unavailable (private mode etc.) — ignore silently.
     }
     setConfirmingClear(false);
@@ -269,12 +255,10 @@ const Settings: FC = (): ReactElement => {
   );
 
   // 지역 코드(en-US 등)를 기본 언어 코드로 축약해 현재 언어를 판별.
-  // 地域コード(en-US等)を基本言語コードに縮めて現在言語を判定。
   // Collapse region codes (e.g. en-US) to resolve the active language.
   const currentLanguage = (i18n.language ?? "en").split("-")[0];
 
   // ── 연결 상태 칩 파생 ──
-  // ── 接続状態チップの導出 ──
   // ── Derive the connection status chip ──
   let statusChip: { label: string; className: string; icon: ReactElement };
   if (health.phase === "loading") {
@@ -322,11 +306,6 @@ const Settings: FC = (): ReactElement => {
    */
   /**
    * [JA]
-   * <div(コンテナ)>
-   *  <h2>タイトル</h2>
-   *  <div(地図/表示 環境設定カード)>
-   *  <div(ローカルデータカード)>
-   *  <div(リアルタイム接続カード)>
    * </div>
    */
   /**
@@ -345,7 +324,6 @@ const Settings: FC = (): ReactElement => {
 
       {/*
           지도 및 표시 환경설정 — 모두 settings/updateSettings로 영속화된다.
-          地図・表示の環境設定 — すべて settings/updateSettings で永続化される。
           Map & display preferences — all persisted via settings/updateSettings.
       */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100">
@@ -485,7 +463,6 @@ const Settings: FC = (): ReactElement => {
 
       {/*
           로컬 데이터 — 선박 캐시만 삭제. 함대/설정은 보존된다.
-          ローカルデータ — 船舶キャッシュのみ削除。艦隊/設定は保持。
           Local data — clears the vessel cache only. Fleet & settings are kept.
       */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100">
@@ -542,7 +519,6 @@ const Settings: FC = (): ReactElement => {
 
       {/*
           실시간 연결 — 프록시 /health를 15초마다 조회해 그대로 보여준다(가짜 상태 없음).
-          リアルタイム接続 — プロキシ /health を15秒毎に取得しそのまま表示(偽ステータスなし)。
           Live connection — polls the proxy /health every 15s and shows it as-is (no fake status).
       */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100">

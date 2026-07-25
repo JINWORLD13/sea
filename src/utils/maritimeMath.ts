@@ -1,43 +1,26 @@
 // 해양 수학 모듈: 거리, 속도, 충돌 위험(CPA/TCPA) 등을 계산합니다.
-// 海洋数学モジュール：距離、速度、衝突リスク（CPA/TCPA）などを計算します。
 // Maritime math: distance, speed, collision risk (CPA/TCPA). Formulas follow maritime convention.
 export interface Vector2 {
   x: number;
   y: number;
 }
 
-// 각도를 라디안으로 변환
-// 角度をラジアンに変換
-// Converts degrees to radians.
-export const degToRad = (deg: number) => {
-  const result = (deg * Math.PI) / 180;
-  return result;
-};
+export const degToRad = (deg: number): number => (deg * Math.PI) / 180;
 
-// 위도/경도를 평면 좌표(XY)로 변환
-// 緯度経度を平面座標(XY)에 変換
-// Converts Lat/Lng to plane coordinates (XY).
+// 위도/경도를 기준 위도(refLat) 주변의 평면 미터 좌표로 변환 (등거리 원통 근사).
+// Lat/lng -> local planar metres via an equirectangular approximation around refLat.
 export const latLngToXY = (
   lat: number,
   lng: number,
   refLat: number,
 ): Vector2 => {
-  const latScale = 111319.9;
+  const latScale = 111319.9; // 위도 1도당 미터 / metres per degree of latitude
   const lngScale = latScale * Math.cos(degToRad(refLat));
-
-  const xValue = lng * lngScale;
-  const yValue = lat * latScale;
-
-  const result = {
-    x: xValue,
-    y: yValue,
-  };
-  return result;
+  return { x: lng * lngScale, y: lat * latScale };
 };
 
-// 두 선박 간의 근접 거리(CPA) 및 시간(TCPA) 계산
-// 二隻の船の間の最接近距離(CPA)と時間(TCPA)を計算する。
-// Calculates Closest Point of Approach (CPA) and time (TCPA) between two ships.
+// 두 선박의 최근접 거리(CPA)와 도달 시간(TCPA)을 계산.
+// Closest Point of Approach (CPA) distance and time-to-CPA (TCPA) for two ships.
 export const calculateCPA = (
   p1: Vector2,
   v1: Vector2,
@@ -48,58 +31,33 @@ export const calculateCPA = (
   const dY = p2.y - p1.y;
   const dVX = v2.x - v1.x;
   const dVY = v2.y - v1.y;
-
   const dVSq = dVX * dVX + dVY * dVY;
 
+  // 상대속도가 0에 가까우면(평행 침로) 현재 거리가 곧 CPA다.
+  // Near-zero relative velocity (parallel tracks) -> current distance is the CPA.
   if (dVSq < 0.000001) {
-    const dist = Math.sqrt(dX * dX + dY * dY);
-    const resultIfSlow = {
-      cpaDistance: dist,
-      tcpa: 0,
-    };
-    return resultIfSlow;
+    return { cpaDistance: Math.sqrt(dX * dX + dY * dY), tcpa: 0 };
   }
 
-  const tcpaValue = -(dX * dVX + dY * dVY) / dVSq;
+  const tcpa = -(dX * dVX + dY * dVY) / dVSq;
 
-  if (tcpaValue < 0) {
-    const dist2 = Math.sqrt(dX * dX + dY * dY);
-    const resultIfPast = {
-      cpaDistance: dist2,
-      tcpa: 0,
-    };
-    return resultIfPast;
+  // 최근접 시점이 과거면 이미 멀어지는 중 → 현재 거리를 반환.
+  // A CPA in the past means the ships are already separating -> return current distance.
+  if (tcpa < 0) {
+    return { cpaDistance: Math.sqrt(dX * dX + dY * dY), tcpa: 0 };
   }
 
-  const cpaPos1X = p1.x + v1.x * tcpaValue;
-  const cpaPos1Y = p1.y + v1.y * tcpaValue;
-  const cpaPos2X = p2.x + v2.x * tcpaValue;
-  const cpaPos2Y = p2.y + v2.y * tcpaValue;
-
-  const diffX = cpaPos2X - cpaPos1X;
-  const diffY = cpaPos2Y - cpaPos1Y;
-  const distAtCpa = Math.sqrt(diffX * diffX + diffY * diffY);
-
-  const finalResult = {
-    cpaDistance: distAtCpa,
-    tcpa: tcpaValue,
-  };
-  return finalResult;
+  // TCPA 시점의 두 선박 간 간격 = 초기 간격 + 상대속도 × tcpa.
+  // Gap at TCPA = initial gap + relative velocity * tcpa.
+  const gapX = dX + dVX * tcpa;
+  const gapY = dY + dVY * tcpa;
+  return { cpaDistance: Math.sqrt(gapX * gapX + gapY * gapY), tcpa };
 };
 
-// 선박의 속도와 방향을 속도 벡터로 변환
-// 船舶の速度と方向を速度ベクトルに変換
-// Converts ship's speed and course to velocity vector.
+// COG(진침로)·SOG(노트)를 m/s 속도 벡터로 변환. 나침반각(북=0, 시계방향)을 수학각으로 보정.
+// COG/SOG -> velocity vector in m/s; converts compass bearing (0=N, clockwise) to math angle.
 export const cogSogToVelocity = (cog: number, sogKnots: number): Vector2 => {
-  const speedMpS = sogKnots * 0.514444;
+  const speedMps = sogKnots * 0.514444; // 노트 → m/s / knots to m/s
   const angleRad = degToRad(90 - cog);
-
-  const vx = speedMpS * Math.cos(angleRad);
-  const vy = speedMpS * Math.sin(angleRad);
-
-  const resultVelocity = {
-    x: vx,
-    y: vy,
-  };
-  return resultVelocity;
+  return { x: speedMps * Math.cos(angleRad), y: speedMps * Math.sin(angleRad) };
 };

@@ -1,5 +1,4 @@
 // 함대 상태 페이지: 실시간 추적 중인 선박 디렉토리와 주요 상태를 보여줍니다.
-// 艦隊ステータスページ:リアルタイム追跡中の船舶ディレクトリと主要ステータスを表示します。
 // Fleet Status Page: Live directory of tracked vessels with their key status.
 import { useMemo } from "react";
 import type { FC, ReactElement } from "react";
@@ -17,7 +16,6 @@ import {
 } from "../utils/aisTypes";
 
 // i18n 키가 번역되기 전에도 읽을 수 있게 하는 영어 기본값(수집 패스가 키를 채운다).
-// i18nキーが翻訳される前でも読めるようにする英語デフォルト(収集パスがキーを埋める)。
 // English fallbacks so type labels stay readable before the i18n pass fills the keys in.
 const CATEGORY_LABEL_FALLBACK: Record<ShipCategory, string> = {
   cargo: "Cargo",
@@ -35,7 +33,6 @@ const CATEGORY_LABEL_FALLBACK: Record<ShipCategory, string> = {
 };
 
 // 대형 스냅샷에서도 렌더링이 가볍도록 표 행 수를 제한한다(절단 시 정직하게 고지).
-// 大規模スナップショットでも描画が軽いように表の行数を制限する(切り捨て時は正直に告知)。
 // Cap table rows so large snapshots stay light to render (truncation is disclosed honestly).
 const MAX_TABLE_ROWS = 200;
 
@@ -52,7 +49,6 @@ const FleetStatus: FC = (): ReactElement => {
   const streamStatus = useShipStore((state) => state.streamStatus);
 
   // ── 디렉토리는 실제 선박(kind "vessel")만 포함하고 이름순으로 정렬한다 ──
-  // ── ディレクトリは実船舶(kind "vessel")のみ含み、名前順に整列する ──
   // ── The directory lists real vessels only (kind "vessel"), sorted by name ──
   const { vessels, activeCount, mooredCount } = useMemo(() => {
     const list = Object.values(ships).filter((ship) => ship.kind === "vessel");
@@ -76,7 +72,6 @@ const FleetStatus: FC = (): ReactElement => {
   };
 
   // ── 실제 스트림 상태를 반영하는 헤더 칩(항상 초록색인 가짜 칩 금지) ──
-  // ── 実際のストリーム状態を反映するヘッダーチップ(常時緑の偽チップ禁止) ──
   // ── Header chip reflecting the REAL stream state (no perpetually green fake) ──
   const streamChip = ((): { label: string; className: string } => {
     switch (streamStatus.state) {
@@ -118,10 +113,6 @@ const FleetStatus: FC = (): ReactElement => {
    */
   /**
    * [JA]
-   * <div(メインコンテナ)>
-   *  <div(ヘッダーセクション:タイトル + ストリーム状態チップ)>
-   *  <div(要約カードグリッド)>
-   *  <div(船舶リストテーブル)>
    * </div>
    */
   /**
@@ -148,7 +139,6 @@ const FleetStatus: FC = (): ReactElement => {
 
       {/*
           요약 카드 섹션 — 실측치(항해상태 기반 운항/정박, 전역 경보 피드).
-          要約カードセクション — 実測値(航行状態ベースの運航/停泊、グローバル警報フィード)。
           Summary Card Section — measured values (nav-status based active/moored,
           global alert feed).
       */}
@@ -204,7 +194,6 @@ const FleetStatus: FC = (): ReactElement => {
 
       {/*
           선박 목록 테이블 — 행 클릭 시 해당 선박 선택 후 대시보드로 이동.
-          船舶リストテーブル — 行クリックで当該船舶を選択しダッシュボードへ移動。
           Vessel List Table — clicking a row selects the ship and opens the dashboard.
       */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
@@ -236,7 +225,6 @@ const FleetStatus: FC = (): ReactElement => {
             <tbody className="divide-y divide-slate-50">
               {visibleVessels.length === 0 ? (
                 // 정직한 빈 상태: 추적 중인 선박이 없으면 그대로 알린다.
-                // 正直な空状態:追跡中の船舶がなければそのまま伝える。
                 // Honest empty state — say so when nothing is tracked yet.
                 <tr>
                   <td
@@ -252,7 +240,6 @@ const FleetStatus: FC = (): ReactElement => {
               ) : (
                 visibleVessels.map((ship) => {
                   // 항해상태(NavigationalStatus) 기준: 정박/계류/좌초 → Moored, 그 외 → Active.
-                  // 航行状態(NavigationalStatus)基準:錨泊/係留/座礁 → Moored、その他 → Active。
                   // Nav-status driven: anchored/moored/aground → Moored, else Active.
                   const stationary = isStationaryStatus(ship.navStatus);
                   const etaText = formatEta(ship.eta);

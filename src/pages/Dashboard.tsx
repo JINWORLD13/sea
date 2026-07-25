@@ -1,5 +1,4 @@
 // 메인 대시보드: 선박 지도와 상세 정보를 통합하여 보여줍니다.
-// メインダッシュボード：船舶地図と詳細情報を統合して表示します。
 // Main Dashboard: Integrates ship map and detailed information.
 import { useState, useEffect, useMemo, lazy, Suspense } from "react";
 import {
@@ -35,13 +34,11 @@ import { useShipSnapshot } from "../hooks/useShipSnapshot";
 const Scene = lazy(() => import("../components/3d/Scene"));
 
 // 언어 토글 순환 순서 (en → ko → ja).
-// 言語トグルの循環順序（en → ko → ja）。
 // Language toggle cycle order (en → ko → ja).
 const LANGUAGE_CYCLE = ["en", "ko", "ja"] as const;
 
 const Dashboard = () => {
   // 플랫폼 모드 상태 관리
-  // プラットフォームモードの状態管理
   // Manage platform mode state.
   const [platformMode, setPlatformMode] = useState<
     "fleet" | "safety" | "marina"
@@ -63,8 +60,6 @@ const Dashboard = () => {
 
   // 버튼 클릭 시 모드 전환 처리: fleet은 실제 함대 필터, marina는 소형선(7kn 미만)
   // 필터, safety는 두 필터를 해제하고 전역 알림 피드 패널을 강조한다.
-  // ボタンクリック時のモード切替処理：fleetは実際の艦隊フィルター、marinaは小型船
-  // （7kn未満）フィルター、safetyは両フィルターを解除しグローバルアラートパネルを強調。
   // Handle mode switching: fleet applies the real fleet filter, marina applies the
   // small-craft (<7 kn) filter, safety clears both and highlights the global
   // alert-feed panel.
@@ -83,7 +78,6 @@ const Dashboard = () => {
   };
 
   // 현재 언어(지역코드 포함 가능)를 기본 언어로 축약한 뒤 en → ko → ja 순환.
-  // 現在の言語（地域コードを含む場合あり）を基本言語に縮約し en → ko → ja を循環。
   // Collapse the current language (may carry a region code) to its base form,
   // then cycle en → ko → ja.
   const baseLang = (i18nObj.language || "en").split("-")[0];
@@ -98,13 +92,11 @@ const Dashboard = () => {
   const currentShip = selectedMmsi ? shipsMap[selectedMmsi] : null;
 
   // 실제 AIS 항해 데이터(목적지 + ETA). 방송되지 않았으면 "—"로 정직하게 표기.
-  // 実際のAIS航海データ（目的地＋ETA）。放送されていなければ「—」で正直に表記。
   // Real AIS voyage data (destination + ETA); honest "—" when not broadcast.
   const destinationText = currentShip?.destination?.trim() || "—";
   const etaText = (currentShip ? formatEta(currentShip.eta) : null) ?? "—";
 
   // 속도 단위 설정(kn/km/h)을 반영한 표기.
-  // 速度単位設定（kn/km/h）を反映した表記。
   // Speed formatting honoring the speed-unit setting (kn / km/h).
   const speedUnitLabel = speedUnit === "kmh" ? "KM/H" : "KN";
   const formatSpeedValue = (speedKn: number): string =>
@@ -112,7 +104,6 @@ const Dashboard = () => {
 
   const allShipsEntries = Object.values(shipsMap);
   // 통계에는 실제 선박(kind === "vessel")만 집계한다 (AtoN/기지국 제외).
-  // 統計には実際の船舶（kind === "vessel"）のみを集計（AtoN／基地局を除外）。
   // Only true vessels count toward the stats (AtoN / base stations excluded).
   const shipCountTotal = allShipsEntries.filter(
     (s) => s.kind === "vessel",
@@ -124,7 +115,6 @@ const Dashboard = () => {
   const shipCountFleet = filteredFleetShips.length;
 
   // 검색어에 맞는 함대 목록만 표시
-  // 検索語に合う艦隊リストのみ表示
   // Fleet list filtered by search.
   const fleetMmsisToShow = useMemo(() => {
     if (!searchQuery.trim()) return fleetMmsisList;
@@ -135,7 +125,6 @@ const Dashboard = () => {
   }, [fleetMmsisList, shipsMap, searchQuery]);
 
   // 검색 결과가 1척일 때 해당 선박 자동 선택
-  // 検索結果が1隻のときその船舶を自動選択
   // Auto-select when single search result.
   const singleSearchMatchId = useMemo(() => {
     if (!searchQuery.trim()) return null;
@@ -151,7 +140,6 @@ const Dashboard = () => {
   }, [singleSearchMatchId]);
 
   // URL 공유 링크로 들어온 경우 해당 MMSI를 선택합니다.
-  // URL共有リンクで入った場合、そのMMSIを選択します。
   useEffect(() => {
     const fullUrlSearch = window.location.search;
     const urlParams = new URLSearchParams(fullUrlSearch);
@@ -165,17 +153,12 @@ const Dashboard = () => {
   // 궤적 리플레이: 슬라이더가 선택 선박의 타임스탬프 경로를 스크럽하며
   // 지도에는 고스트 마커만 그린다. 라이브 선박 데이터는 절대 변경하지 않는다.
   // 선택 변경/페이지 이탈 시 고스트를 반드시 정리한다.
-  // 航跡リプレイ：スライダーが選択船舶のタイムスタンプ付き経路をスクラブし、
-  // 地図にはゴーストマーカーのみ描画。ライブ船舶データは絶対に変更しない。
-  // 選択変更／ページ離脱時にゴーストを必ずクリアする。
   // Track replay: the slider scrubs the selected ship's timestamped path and
   // drives a ghost marker only — the live vessel is NEVER mutated. The ghost is
   // always cleared when the selection changes or the page unmounts.
   const [replayIndex, setReplayIndex] = useState<number | null>(null);
   // 선택 선박이 바뀌면 리플레이 인덱스를 초기화한다. React 권장 패턴에 따라
   // effect 안의 setState 대신 렌더 중 이전값 비교로 상태를 조정한다.
-  // 選択船舶が変わればリプレイインデックスを初期化する。Reactの推奨パターンに従い、
-  // effect内のsetStateではなくレンダー中の前回値比較で状態を調整する。
   // Reset the replay index when the selected ship changes, using React's
   // "adjust state during render" pattern instead of setState inside an effect.
   const [replayTrackedMmsi, setReplayTrackedMmsi] = useState<string | null>(
@@ -186,7 +169,6 @@ const Dashboard = () => {
     setReplayIndex(null);
   }
   // 고스트는 외부 스토어(Zustand) 상태이므로 선택 변경/언마운트 시 정리한다.
-  // ゴーストは外部ストア(Zustand)の状態なので、選択変更/アンマウント時に片付ける。
   // The ghost lives in the external store, so clear it on selection change/unmount.
   useEffect(() => {
     return () => {
@@ -239,14 +221,6 @@ const Dashboard = () => {
    */
   /**
    * [JA]
-   * <div(コンテナ)>
-   *  <div(運用モードセレクター)>
-   *  <div(主要情報ヘッダー)>
-   *  <div(状況統計バー)>
-   *  <div(データグリッド)>
-   *    <div(艦隊リスト)>
-   *    <div(マップエリア)>
-   *    <div(ライブインテリジェンスと通知)>
    *  </div>
    * </div>
    */
@@ -270,7 +244,6 @@ const Dashboard = () => {
 
       {/*
         2. 주 정보 헤더
-        2. 主要情報ヘッダー
         2. Main Info Header
       */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 p-5 rounded-2xl glass-panel relative overflow-hidden">
@@ -364,7 +337,6 @@ const Dashboard = () => {
 
       {/*
         4. 데이터 표시 그리드
-        4. データ表示グリッド
         4. Data Display Grid
       */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
@@ -492,7 +464,6 @@ const Dashboard = () => {
                 <div className="flex items-center justify-between mt-2">
                   {/*
                     스크럽 중이면 해당 지점의 수신 시각을, 아니면 LIVE를 표시.
-                    スクラブ中はその地点の受信時刻を、そうでなければLIVEを表示。
                     Show the scrubbed point's report time, or LIVE otherwise.
                   */}
                   <span
@@ -528,8 +499,6 @@ const Dashboard = () => {
           {/*
             선택 선박의 실제 AIS 텔레메트리 카드 (속도/침로/항해 상태/제원).
             방송되지 않은 값은 "—"로 정직하게 표기한다.
-            選択船舶の実際のAISテレメトリカード（速度／針路／航海状態／諸元）。
-            放送されていない値は「—」で正直に表記する。
             Real AIS telemetry cards for the selected vessel (speed / course /
             nav status / dimensions). Unbroadcast values honestly show "—".
           */}
@@ -611,7 +580,6 @@ const Dashboard = () => {
               </span>
               {/*
                 3D 씬은 시각화일 뿐임을 정직하게 밝힌다 (AIS에는 자세 데이터가 없음).
-                3Dシーンは可視化に過ぎないことを正直に明示（AISには姿勢データがない）。
                 Honest caption: the 3D scene is illustrative only (AIS carries
                 no attitude data).
               */}

@@ -1,6 +1,6 @@
 # Language Selection / 언어 선택 / 言語選択
 
-ようこそ！ドキュメントを閲覧するには、ご希望의 言語を選択してください：
+ようこそ！ドキュメントを閲覧するには、ご希望の言語を選択してください：
 
 - [English](README.md)
 - [한국어](README.ko.md)
@@ -13,15 +13,17 @@
 海上船舶モニタリングおよびデジタルツインインターフェースプロジェクトです。
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-5.0-3178C6?logo=typescript&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-4.0-646CFF?logo=vite&logoColor=white)
-![Three.js](https://img.shields.io/badge/Three.js-r149-black?logo=three.js&logoColor=white)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
+![Vite](https://img.shields.io/badge/Vite-7-646CFF?logo=vite&logoColor=white)
+![Three.js](https://img.shields.io/badge/Three.js-r182-black?logo=three.js&logoColor=white)
 ![Zustand](https://img.shields.io/badge/State_Management-Zustand-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
 ## 🚢 プロジェクト概要
 
-このプロジェクトは、自律航行および海洋AI認識技術に基づいたリアルタイム船舶モニタリングシステムです。AIS（Automatic Identification System）データを活用して船舶の位置を視認化し、IoTセンサーデータを同期して船舶の状態をリアルタイムで表示するデジタルツイン環境を構築します。
+**実際の全世界AIS（Automatic Identification System）リアルタイムデータ**を基にした船舶管制インターフェースです（モックデータではありません）。AISStream.io の位置ストリームを Node プロキシ経由で受信し、クライアント側で衝突リスク（CPA/TCPA）を計算して、Leaflet マップと Three.js の 3D ビューに数百隻を描画します。
+
+中心的な技術課題は、**毎秒数百件で到達するストリームを、ブラウザが描画できる速度まで落とすこと**であり、プロキシ → ストリーム → ストア → 描画の4層バックプレッシャーパイプラインで解決しました。
 
 ## 🌟 主要機能
 
@@ -29,44 +31,62 @@
    - 船舶のHeadingデータに基づいたカスタムマーカー回転システム
    - 過去の座標データを活用した船舶経路の予測および視認化
 
-2. **デジタルツイン3Dビュー**
-   - Three.jsおよびReact Three Fiberを使用した高精度な3D船舶レンダリング
-   - WebSocketを通じたPitchおよびRollデータの同期によるリアルタイム挙動シミュレーション
+2. **3D船舶ビュー**
+   - Three.jsおよびReact Three Fiberによる3D船舶レンダリング
+   - 実際に受信する方位（heading）と速度を Lerp 補間で滑らかに反映
+   - 注記: AIS 規格には pitch/roll の情報が存在しないため、3Dビューは実際に受信する値のみを反映します
 
-3. **高性能な状態管理**
-   - Zustandを活用し、秒間数十件のAISストリームデータを効率的に処理
-   - 変更されたデータのみを更新する最適化ロジックの適用
+3. **衝突リスク分析（CPA/TCPA）**
+   - 最接近距離・時間を独自実装で計算し、500m/6分を danger、1,500m/12分を warning に自動分類
+   - 2秒周期の全体スキャン、制限水域への進入時にジオフェンス警報
 
-4. **グローバル対応**
-   - i18nextを活用した韓国語、英語、日本語の多言語対応
+4. **高性能な状態管理**
+   - Zustand のセレクター購読 + copy-on-write 更新
+   - 1秒バッチ flush、画面ごとの 800〜1,200ms スナップショットスロットル + `startTransition`
+   - ビューポートカリング → マーカー250個上限 → ズーム12未満はピクセルグリッドクラスタリング
+   - マーカーの移動は共有 rAF ティッカーで補間し、**React の再レンダリングはゼロ**
+
+5. **グローバル対応**
+   - i18nextを活用した韓国語、英語、日本語の多言語対応（ブラウザ言語の自動検出）
 
 ## 🛠 技術スタック
 
-- **フレームワーク**: React 19, TypeScript, Vite
-- **状態管理**: Zustand
+- **フレームワーク**: React 19, TypeScript 5.9, Vite 7
+- **状態管理**: Zustand 5（セレクターベースの購読）
 - **視覚化**:
   - **Map**: Leaflet, React-Leaflet
   - **3D**: Three.js, @react-three/fiber, @react-three/drei
+- **バックエンド（プロキシ）**: Node.js, Express 5, `ws` — APIキー秘匿・AISフィールド正規化・キャッシュ・レート制限
 - **スタイリング**: Tailwind CSS, Lucide React
-- **通信**: WebSocket (AISStream API)
+- **データソース**: AISStream.io（全世界のリアルタイムAIS WebSocket）
+- **国際化**: i18next（韓国語・英語・日本語）
 
 ## 📂 プロジェクト構造
 
 ```text
 seatrace/
+├── server/
+│   └── proxy.js          # AISプロキシ: キー秘匿・正規化・キャッシュ・レート制限
 ├── src/
+│   ├── store/
+│   │   ├── aisStream.ts  # WebSocketクライアント・バッチ・再接続・購読管理
+│   │   ├── useShipStore.ts # Zustandストア + CPA/ジオフェンスのリスク計算
+│   │   ├── shipTypes.ts  # ドメイン型定義
+│   │   ├── config.ts     # チューニング定数（一箇所に集約）
+│   │   └── persistence.ts # localStorage ウォームキャッシュ・設定・船隊
 │   ├── components/
 │   │   ├── 3d/           # Three.js / React Three Fiber (Ship, Scene)
-│   │   ├── dashboard/   # ModeSwitcher, StatsBar, Alerts
-│   │   ├── layout/      # アプリレイアウト、Sidebar、Header
-│   │   └── map/         # Leaflet マップおよび船舶マーカー
-│   ├── store/            # Zustand (船舶、CPA/ジオフェンシング、tick)
+│   │   ├── dashboard/    # ModeSwitcher, StatsBar, Alerts
+│   │   ├── layout/       # アプリレイアウト、Sidebar、Header
+│   │   └── map/          # Leaflet マップ・マーカー・クラスタリング・rAF補間
+│   ├── hooks/
+│   │   └── useShipSnapshot.ts # 描画スロットリングフック
 │   ├── utils/            # 海上数学 (CPA, latLngToXY, cogSogToVelocity)
-│   ├── constants/        # 翻訳(i18n)、海域、目的港リスト
+│   ├── constants/        # 翻訳(i18n)
 │   ├── i18n.ts           # i18next 設定および言語検出
 │   └── pages/            # Dashboard, LiveMap, FleetStatus, Analytics, Settings
 ├── public/
-└── .env                  # VITE_AISSTREAM_API_KEY (オプション、リアルタイムAIS用)
+└── .env                  # AISSTREAM_API_KEY（サーバー専用、git 追跡対象外）
 ```
 
 ## 🚀 スタートガイド
@@ -83,10 +103,21 @@ seatrace/
    npm install
    ```
 
-3. 環境変数を設定します. (.env)
+3. 環境変数を設定します。(.env)
 
    ```
-   VITE_AISSTREAM_API_KEY=your_api_key_here
+   AISSTREAM_API_KEY=your_api_key_here
+   PROXY_PORT=8081
+   ```
+
+   > `VITE_AISSTREAM_API_KEY` では**なく** `AISSTREAM_API_KEY` を使用してください。
+   > Vite は `VITE_` 接頭辞の変数をクライアントバンドルにそのままインライン展開するため、
+   > devtools を開いた誰にでもキーが露出します。キーが必要なのはプロキシプロセスのみです。
+
+4. フロントエンドとプロキシサーバーを同時に起動します。
+
+   ```bash
+   npm run dev
    ```
 
 ### データフロー
@@ -98,19 +129,40 @@ seatrace/
 ### 1. 高頻度 WebSocket データの処理最適化
 
 - **課題**: 大量のAISデータ（数百隻の船舶）がリアルタイムで流入する際、マップマーカーのちらつきや全体のパフォーマンス低下が発生。
-- **解決策**:
-  - **Throttled Updates**: Zustand ストア内にスロットリングメカニズムを実装し、状態更新の頻度を制御しました。
-  - **Threshold フィルタリング**: 船舶の移動距離がしきい値（例：0.5m）未満の場合、不要な状態更新をスキップするようにロジックを設計しました。
-  - **コンポーネントの分離**: 画面全体の再レンダリングを防ぐため、3Dキャンバスとマップレイヤーを独立したコンテキストに隔離しました。
+- **解決策** — 4層のバックプレッシャーパイプライン。各層が異なる種類の負荷を吸収します。
+  - **プロキシ（`server/proxy.js`）**: 購読ボックスの面積を 0.25 平方度以下に強制検証、クライアントごとに毎秒180メッセージ・追跡600 MMSI の上限、5,000隻のサーバーキャッシュから100隻チャンクで即座にスナップショットを配信。
+  - **ストリーム（`aisStream.ts`）**: MMSI をキーとする `Map` に統合して1秒間隔でバッチ flush。同一船舶の連続報告がストア書き込み1件に集約されます。
+  - **ストア（`useShipStore.ts`）**: 追跡500隻の上限と20分無受信の自動整理。CPA/ジオフェンスを**単一パスの copy-on-write** で計算し、船舶ごとに発生していた全体コピーと購読者通知を**最大1回**に削減。
+  - **描画（`useShipSnapshot.ts` + `map/`）**: 画面ごとに 800〜1,200ms のスナップショットスロットルを `startTransition` 内で実行し、画面外をカリングした上でマーカーを250個に制限、ズーム12未満は64pxのピクセルグリッドでクラスタリング。
 
-### 2. 精密な 3D デジタルツイン同期
+### 2. 再レンダリングなしでマーカーを滑らかに動かす
 
-- **課題**: センサーから受信する Pitch/Roll/Heading データを、3Dモデルに途切れることなくスムーズに反映させる必要。
+- **課題**: AIS の位置報告は数秒〜数十秒の不規則な間隔で届くため、マーカーが瞬間移動します。かといって React の state で補間すると、毎秒60回 × 250個の再レンダリングが発生します。
 - **解決策**:
-  - **Lerp 補間**: `MathUtils.lerp` および `Slerp` を使用して、角度の変化を視覚的に滑らかに繋ぎました。
-  - **海上数学の活用**: COG（Course Over Ground）および SOG（Speed Over Ground）データを基に予測位置を計算するユーティリティを開発しました。
+  - **共有 rAF ティッカー**（`markerAnimation.ts`）: すべてのマーカーが `requestAnimationFrame` ループ**1つ**を共有し、`layer.setLatLng()` で Leaflet レイヤーを直接操作 → **React の再レンダリングはゼロ**。進行中の補間がなければティッカーは自動的に停止します。
+  - **不連続区間のスナップ**: 500m を超えるジャンプ（信号消失からの復帰）は補間をスキップし、船が海を横切って滑るように見えるのを防ぎます。
+  - **負荷に応じた段階的低下**: ズーム11未満、またはマーカー150個超では補間を無効化し、OS の `prefers-reduced-motion` 設定を尊重します。
+  - **海上数学**: COG（対地針路）・SOG（対地速力）を速度ベクトルへ変換するユーティリティを作成し、推測航法と CPA 計算の両方で使用しています。
+
+### 3. React StrictMode でソケットがゴーストとして残る問題
+
+- **課題**: StrictMode のエフェクト二重実行により、破棄したはずの旧ソケットが生き残り、`onmessage` がストアへ書き込み続け、再接続タイマーが発火し続けてデータ重複と再接続の暴走が発生。
+- **解決策** — **世代（generation）カウンター**（`aisStream.ts`）:
+  - `startAisStream`/`stopAisStream` が `streamGeneration` を**先にインクリメントしてから**その値をキャプチャします。全コールバックは自分の世代が最新かを確認して即座に return するため、旧世代のコールバックはすべて no-op になります。
+  - `onclose` も同じ判定で**意図的な終了と予期しない切断を区別**し、後者のみ再接続をスケジュールします。
+  - 終了時は**順序**が重要です — `activeBounds` を `null` にする前に残りのバッチを flush してキャッシュを保存する必要があります（キャッシュが bounds でフィルタリングするため）。
+  - 再接続は指数バックオフ（1秒 → 30秒上限）に ±20% のジッターを加え、**既存の船舶リストは保持**して画面が空にならないようにしています。
+
+## ⚠️ 既知の制限
+
+意図的な選択であり、明記しておきます。
+
+- **AIS 規格には pitch/roll の情報がありません。** 以前のバージョンでは 3D ビューで船体動揺を表現していましたが、実データの裏付けがないことを確認して削除しました。現在の 3D ビューは方位と速度のみを反映します。
+- **燃料消費量・CO2 排出量の推定機能も同じ理由で削除**しました。AIS からは算出できない値であり、根拠のない数値を管制ダッシュボードに表示することは、数値がないことより危険です。
+- **Analytics は過去データではなく、現在のセッションで追跡した船舶の集計**であり、画面上にもその旨を表記しています。
+- **サーバーキャッシュはインメモリ**のため、プロキシ再起動時に失われます。複数インスタンスへ拡張するには Redis のような外部ストアが必要です。
 
 ## 🚀 今後のロードマップ
 
 - [ ] 過去のAISデータ再生機能（Playback）の統合
-- [ ] ブリッジシミュレーター向け VR/AR 対応の拡張
+- [ ] 複数インスタンス配備に向けたプロキシキャッシュの外部ストア化
