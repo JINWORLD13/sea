@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: seatrace-proxy
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server/proxy.js
+    envVars:
+      - key: AISSTREAM_API_KEY
+        sync: false

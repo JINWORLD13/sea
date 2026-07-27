@@ -19,6 +19,8 @@
 ![Zustand](https://img.shields.io/badge/State_Management-Zustand-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
+**🔗 라이브 데모:** [vts-tau-navy.vercel.app/dashboard](https://vts-tau-navy.vercel.app/dashboard)
+
 ## 🚢 프로젝트 개요
 
 **실제 전 세계 AIS(Automatic Identification System) 실시간 데이터**를 기반으로 한 선박 관제 인터페이스임(모의 데이터 아님). AISStream.io의 위치 스트림을 Node 프록시를 거쳐 받고, 클라이언트에서 충돌 위험(CPA/TCPA)을 계산해 Leaflet 지도와 Three.js 3D 뷰에 수백 척을 렌더링함.

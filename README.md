@@ -19,6 +19,8 @@ Real-time ship monitoring and digital twin interface inspired by AI autonomous n
 ![Zustand](https://img.shields.io/badge/State_Management-Zustand-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
+**🔗 Live Demo:** [vts-tau-navy.vercel.app/dashboard](https://vts-tau-navy.vercel.app/dashboard)
+
 ## 🚢 Project Overview
 
 This project is a real-time vessel monitoring interface built on **live global AIS (Automatic Identification System) data** — not mock data. It streams positions from AISStream.io through a Node proxy, computes collision risk (CPA/TCPA) client-side, and renders hundreds of vessels on a Leaflet map plus a Three.js 3D view.

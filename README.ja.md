@@ -19,6 +19,8 @@
 ![Zustand](https://img.shields.io/badge/State_Management-Zustand-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
+**🔗 ライブデモ:** [vts-tau-navy.vercel.app/dashboard](https://vts-tau-navy.vercel.app/dashboard)
+
 ## 🚢 プロジェクト概要
 
 **実際の全世界AIS（Automatic Identification System）リアルタイムデータ**を基にした船舶管制インターフェース（モックデータではない）。AISStream.io の位置ストリームを Node プロキシ経由で受信し、クライアント側で衝突リスク（CPA/TCPA）を計算して、Leaflet マップと Three.js の 3D ビューに数百隻を描画する。
