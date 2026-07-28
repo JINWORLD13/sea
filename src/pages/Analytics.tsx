@@ -461,10 +461,10 @@ const Analytics: FC = (): ReactElement => {
    */
   const analyticsMarkup: ReactElement = (
     <div className="space-y-6">
-      <title>{t("analyticsTitle")} - {t("appName")}</title>
+      <title>{`${t("analyticsTitle")} - ${t("appName")}`}</title>
       <div className="flex flex-wrap justify-between items-end gap-3">
         <div>
-          <h2 className="text-2xl font-bold text-slate-800">
+          <h2 className="text-2xl font-bold text-white">
             {t("analyticsTitle")}
           </h2>
           <p className="text-sm text-slate-400 mt-1">

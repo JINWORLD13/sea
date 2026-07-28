@@ -19,7 +19,6 @@ import type {
   ShipKind,
   ShipPatch,
   ShipStore,
-  UpdateOptions,
 } from "./shipTypes";
 import {
   CPA_FEED_DEDUPE_MS,
@@ -56,7 +55,6 @@ export type {
   ShipKind,
   ShipPatch,
   ShipStore,
-  UpdateOptions,
 } from "./shipTypes";
 export {
   getProxyHttpUrl,
@@ -178,6 +176,21 @@ const recentCpaFeedByMmsi = new Map<string, number>();
 // with one set(). The previous code called updateShip per ship, copying the
 // whole ships object each time (O(n²)) and emitting n subscriber notifications.
 // Now only changed ships are cloned (copy-on-write) with a single notification.
+
+// CPA 속도 벡터: 침로(COG) 우선, 방위(heading) 폴백. 둘 다 미상이면 침로를
+// 지어내는 대신 정지 상태(속도 0)로 간주한다 — 프록시가 COG>=360, heading 511을
+// 정직하게 null로 정규화하므로(Class-B에 흔함), 여기서 0°를 기본값으로 쓰면
+// "북쪽으로 항해 중"이라는 허구의 벡터로 충돌 경보가 오작동한다.
+// CPA velocity: COG first, heading as fallback. When BOTH are unknown, treat
+// the vessel as stationary instead of fabricating a course — the proxy nulls
+// COG>=360 / heading 511 (common on Class-B), and defaulting to 0° here would
+// produce false "steaming due north" vectors in collision alerts.
+function cpaVelocity(ship: ShipData): ReturnType<typeof cogSogToVelocity> {
+  const course = ship.cog ?? ship.heading;
+  if (course === null) return { x: 0, y: 0 };
+  return cogSogToVelocity(course, ship.speed);
+}
+
 function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
   const regionId = state.currentRegion.id;
   const selectedId = state.selectedShipMmsi;
@@ -191,9 +204,7 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
       myShip.position.lng,
       myShip.position.lat,
     );
-    // CPA 속도 벡터는 침로(COG) 우선, 방위(heading)는 폴백이다.
-    // CPA velocity vectors use course over ground first, heading as fallback.
-    myVel = cogSogToVelocity(myShip.cog ?? myShip.heading ?? 0, myShip.speed);
+    myVel = cpaVelocity(myShip);
   }
 
   const now = Date.now();
@@ -251,10 +262,7 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
       ship.kind === "vessel"
     ) {
       const otherPos = latLngToXY(lat, lng, myShip.position.lat);
-      const otherVel = cogSogToVelocity(
-        ship.cog ?? ship.heading ?? 0,
-        ship.speed,
-      );
+      const otherVel = cpaVelocity(ship);
       const cpa = calculateCPA(myPos, myVel, otherPos, otherVel);
 
       let severity: "safe" | "warning" | "danger" = "safe";
@@ -404,30 +412,6 @@ export const useShipStore = create<ShipStore>((set, get) => {
               state.streamStatus.receivedMessages + updates.length,
             droppedMessages:
               state.streamStatus.droppedMessages + droppedMessages,
-          },
-        };
-      });
-    },
-
-    updateShip: (
-      id: string,
-      data: Partial<ShipData>,
-      options?: UpdateOptions,
-    ) => {
-      set((state: ShipStore) => {
-        const existingData = state.ships[id];
-        const mergedData =
-          options?.skipPathRecord === true
-            ? {
-                ...buildMergedShip(id, existingData, data),
-                path: existingData?.path ?? data.path ?? [],
-              }
-            : buildMergedShip(id, existingData, data);
-
-        return {
-          ships: {
-            ...state.ships,
-            [id]: mergedData,
           },
         };
       });

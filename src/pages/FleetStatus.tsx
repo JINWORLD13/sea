@@ -125,9 +125,11 @@ const FleetStatus: FC = (): ReactElement => {
    */
   const resultMarkup: ReactElement = (
     <div className="space-y-6">
-      <title>{t("fleetStatusTitle")} - {t("appName")}</title>
+      <title>{`${t("fleetStatusTitle")} - ${t("appName")}`}</title>
       <div className="flex justify-between items-end">
-        <h2 className="text-2xl font-bold text-slate-800">
+        {/* 페이지 배경은 다크 그라디언트 — 제목은 밝은 색이어야 읽힌다 (카드 내부 slate-800과 구분). */}
+        {/* The page sits on the dark gradient; headings must be light (unlike slate-800 inside white cards). */}
+        <h2 className="text-2xl font-bold text-white">
           {t("fleetStatusTitle")}
         </h2>
         <div

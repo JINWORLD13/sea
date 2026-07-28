@@ -28,11 +28,16 @@ const StatsBar = ({
   const streamStatus = useShipStore((s) => s.streamStatus);
 
   const handleShare = () => {
-    // 선택 선박이 있으면 ?mmsi= 딥링크를, 없으면 앱 루트 링크를 공유한다.
-    // Share a ?mmsi= deep link when a vessel is selected, the app root otherwise.
+    // 선택 선박이 있으면 ?mmsi= 딥링크를, 없으면 대시보드 링크를 공유한다.
+    // ("/"가 아닌 "/dashboard"를 쓰는 이유: 리다이렉트를 거치지 않는 링크가
+    // 어떤 호스팅 설정에서도 가장 안전하게 동작한다.)
+    // Share a ?mmsi= deep link when a vessel is selected, the dashboard link
+    // otherwise. "/dashboard" (not "/") avoids depending on redirect behavior.
     const url = selectedMmsi
-      ? window.location.origin + "/?mmsi=" + encodeURIComponent(selectedMmsi)
-      : window.location.origin + "/";
+      ? window.location.origin +
+        "/dashboard?mmsi=" +
+        encodeURIComponent(selectedMmsi)
+      : window.location.origin + "/dashboard";
     // clipboard API는 비보안 컨텍스트/권한 거부 시 throw하거나 reject한다.
     // clipboard API can throw (insecure context) or reject (denied); guard it.
     const onCopied = () => alert(t("shareLinkCopied"));

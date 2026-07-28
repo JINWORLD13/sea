@@ -254,6 +254,11 @@ export const translations = {
     severityLow: "Low",
     alertKindCpa: "CPA",
     alertKindGeofence: "Geofence",
+    // 스토어가 만드는 피드 메시지 원문 자체가 키로 조회된다 (Alerts.tsx의
+    // i18n.exists 경로) — config.ts RESTRICTED_ZONE_ALERT_MESSAGE와 일치 필수.
+    // The raw store-generated feed message doubles as the lookup key (the
+    // i18n.exists path in Alerts.tsx) — must match RESTRICTED_ZONE_ALERT_MESSAGE.
+    "Entered restricted fishery zone": "Entered restricted fishery zone",
     alertAgeJustNow: "just now",
     alertAgeSeconds: "{{value}}s ago",
     alertAgeMinutes: "{{value}}m ago",
@@ -599,6 +604,7 @@ export const translations = {
     severityLow: "낮음",
     alertKindCpa: "CPA",
     alertKindGeofence: "지오펜스",
+    "Entered restricted fishery zone": "제한 수역에 진입했습니다",
     alertAgeJustNow: "방금 전",
     alertAgeSeconds: "{{value}}초 전",
     alertAgeMinutes: "{{value}}분 전",
@@ -914,6 +920,7 @@ export const translations = {
     severityLow: "低",
     alertKindCpa: "CPA",
     alertKindGeofence: "ジオフェンス",
+    "Entered restricted fishery zone": "制限水域に進入しました",
     alertAgeJustNow: "たった今",
     alertAgeSeconds: "{{value}}秒前",
     alertAgeMinutes: "{{value}}分前",

@@ -205,6 +205,18 @@ const scheduleLocalCachePersist = (): void => {
   }, LOCAL_CACHE_PERSIST_DELAY_MS);
 };
 
+// 새로고침/탭 닫기 시점의 최종 저장. React 이펙트 클린업은 페이지 이탈에는
+// 실행되지 않으므로, 여기서 직접 저장해야 웜 스타트가 실제로 동작한다.
+// (pagehide는 새로고침·닫기·bfcache 진입 모두에서 발화한다.)
+// Final persist on refresh/close. React effect cleanup does NOT run on page
+// exit, so without this hook the warm start rarely has fresh data to load.
+// (pagehide fires for refresh, close, and bfcache entry alike.)
+if (typeof window !== "undefined") {
+  window.addEventListener("pagehide", () => {
+    persistLocalShipCache(useShipStore.getState().ships, activeBounds);
+  });
+}
+
 const scheduleFlush = (): void => {
   if (pendingFlushTimer !== null) return;
   // 접속 직후 첫 배치(서버 캐시 스냅샷)는 즉시 그려 초기 로딩을 빠르게.
@@ -579,6 +591,13 @@ const openAisSocket = (generation: number): void => {
     // close that reaches this point with a matching generation is unexpected.
     if (generation !== streamGeneration) return;
     if (activeBounds === null) return;
+    // 소켓 사망 후에도 걸려 있던 flush 타이머가 발화하면 upsertShips가 상태를
+    // 다시 "live"로 되돌린다. 남은 배치를 지금 반영해 타이머를 비운 다음
+    // 재접속 상태로 전환한다 (아래 scheduleReconnect가 최종 상태를 쓴다).
+    // A flush timer left armed past socket death would flip the status back to
+    // "live" via upsertShips. Flush the remainder now (which clears the timer),
+    // then let scheduleReconnect below write the final "reconnecting" state.
+    flushPendingShipUpdates();
     scheduleLocalCachePersist();
     scheduleReconnect(generation);
   };

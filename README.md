@@ -19,7 +19,10 @@ Real-time ship monitoring and digital twin interface inspired by AI autonomous n
 ![Zustand](https://img.shields.io/badge/State_Management-Zustand-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-**🔗 Live Demo:** [vts-tau-navy.vercel.app/dashboard](https://vts-tau-navy.vercel.app/dashboard)
+**🔗 Live Demo:** [vts-tau-navy.vercel.app](https://vts-tau-navy.vercel.app)
+
+> The proxy runs on Render's free tier and sleeps when idle — the first visit
+> can take up to a minute to show live vessels while it wakes up.
 
 ## 🚢 Project Overview
 
@@ -116,12 +119,16 @@ seatrace/
 
    ```
    AISSTREAM_API_KEY=your_api_key_here
-   PROXY_PORT=8081
    ```
 
    > Use `AISSTREAM_API_KEY`, **not** `VITE_AISSTREAM_API_KEY`. Vite inlines any
    > `VITE_`-prefixed variable into the client bundle, which would expose the key
-   > to anyone who opens devtools. Only the proxy process needs it.
+   > to anyone who opens devtools. Only the proxy process needs it — and the
+   > proxy deliberately refuses to read the `VITE_`-prefixed name.
+
+   > Ports default to 8080 on both sides. If 8080 is taken on your machine, set
+   > **both** `PROXY_PORT` and `VITE_PROXY_PORT` to the same free port (e.g. 8081)
+   > — the first moves the proxy, the second tells the frontend where to dial.
 
 4. Run the frontend and proxy together
    ```bash
@@ -138,6 +145,7 @@ All use of the AIS API key is over secure channels only:
 
 - **Server → AISStream**: The proxy sends the API key to AISStream only over **WSS** (`wss://stream.aisstream.io/v0/stream`). The server refuses to start if the AIS URL is not `wss://`.
 - **Browser → Proxy**: The frontend uses **wss://** when the page is loaded over HTTPS (and **ws://** only for local development over HTTP). For production, serve the app over HTTPS so the WebSocket to the proxy uses WSS. The API key is never sent from the browser; it stays on the server.
+- **Untrusted client input**: the proxy validates every client message before touching it — non-object payloads and out-of-range coordinates are rejected, frames are capped at 64 KB (vs the 100 MB `ws` default), subscription floods are ignored, and a 30-second ping/pong heartbeat reaps half-open connections. Set `ALLOWED_ORIGINS` in production to restrict WebSocket/HTTP access to your frontend's origin.
 
 ## 💡 Technical Challenges & Solutions
 

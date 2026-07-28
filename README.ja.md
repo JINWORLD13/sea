@@ -19,7 +19,10 @@
 ![Zustand](https://img.shields.io/badge/State_Management-Zustand-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
-**🔗 ライブデモ:** [vts-tau-navy.vercel.app/dashboard](https://vts-tau-navy.vercel.app/dashboard)
+**🔗 ライブデモ:** [vts-tau-navy.vercel.app](https://vts-tau-navy.vercel.app)
+
+> プロキシは Render の無料枠で動いているため、アイドル時はスリープする。初回
+> アクセス時はウェイクアップに伴い、ライブ船舶の表示まで最大1分ほどかかる場合がある。
 
 ## 🚢 プロジェクト概要
 
@@ -31,7 +34,7 @@
 
 1. **リアルタイムAISマップインターフェース**
    - 船舶のHeadingデータに基づいたカスタムマーカー回転システム
-   - 過去の座標データを活用した船舶経路の予測および視認化
+   - 船舶の航跡（直近の移動経路）の視覚化と針路ベクトルの表示
 
 2. **3D船舶ビュー**
    - Three.jsおよびReact Three Fiberによる3D船舶レンダリング
@@ -109,12 +112,16 @@ seatrace/
 
    ```
    AISSTREAM_API_KEY=your_api_key_here
-   PROXY_PORT=8081
    ```
 
    > `VITE_AISSTREAM_API_KEY` では**なく** `AISSTREAM_API_KEY` を使う。
    > Vite は `VITE_` 接頭辞の変数をクライアントバンドルにそのままインライン展開するため、
-   > devtools を開いた誰にでもキーが露出する。キーが必要なのはプロキシプロセスのみ。
+   > devtools を開いた誰にでもキーが露出する。キーが必要なのはプロキシプロセスのみで、
+   > プロキシは `VITE_` 接頭辞の名前をそもそも読まない実装になっている。
+
+   > ポートは両側とも 8080 が既定。8080 が使用中の場合は `PROXY_PORT` と
+   > `VITE_PROXY_PORT` を**同じ値**（例: 8081）で併せて設定する — 前者はプロキシの
+   > ポートを移し、後者はフロントの接続先を知らせる。
 
 4. フロントエンドとプロキシサーバーを同時に起動する。
 
@@ -125,6 +132,12 @@ seatrace/
 ### データフロー
 
 **フロント ↔ プロキシサーバー ↔ AISStream** — WebSocket双方向通信。フロントから購読リクエスト（例：BoundingBoxes）をサーバーに送ると、サーバーがAISStreamへ転送し、AISデータはAISStream → サーバー → フロントへストリーミングされる。
+
+### セキュリティ
+
+- **サーバー → AISStream**: API キーは **WSS**（`wss://stream.aisstream.io`）のみで送信し、AIS URL が `wss://` でなければサーバーは起動を拒否する。
+- **ブラウザ → プロキシ**: HTTPS で配信されればプロキシ接続も **wss://** を使用する。キーがブラウザへ渡ることはない。
+- **クライアント入力を信頼しない**: プロキシはすべてのクライアントメッセージを検証する — オブジェクトでないペイロードや範囲外座標は拒否、フレームサイズは 64KB 上限（`ws` 既定の 100MB を置換）、購読フラッドは無視、30秒の ping/pong ハートビートでハーフオープン接続を整理。本番では `ALLOWED_ORIGINS` で接続可能な Origin をフロントのドメインに制限できる。
 
 ## 💡 技術的課題と解決策
 

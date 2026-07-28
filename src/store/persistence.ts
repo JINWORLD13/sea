@@ -271,6 +271,12 @@ export function persistLocalShipCache(
       .sort((a, b) => (b.lastSeen ?? 0) - (a.lastSeen ?? 0))
       .slice(0, LOCAL_CACHE_MAX_SHIPS);
 
+    // 빈 목록으로는 덮어쓰지 않는다 — 해역 전환 직후처럼 스토어가 순간적으로
+    // 비어 있을 때 기존 웜 캐시를 지워 버리는 사고를 막는다.
+    // Never overwrite with an empty list — right after a region switch the
+    // store is momentarily empty, and writing that would destroy the warm cache.
+    if (cachedShips.length === 0) return;
+
     window.localStorage.setItem(
       LOCAL_SHIP_CACHE_KEY,
       JSON.stringify({ savedAt: now, ships: cachedShips }),

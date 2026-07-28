@@ -91,7 +91,7 @@ const LiveMap = (): ReactElement => {
 
   const resultMarkup: ReactElement = (
     <div className={containerStyle}>
-      <title>{t("navLiveMap")} - {t("appName")}</title>
+      <title>{`${t("navLiveMap")} - ${t("appName")}`}</title>
       <div className={overlayStyle}>
         <h2 className="font-black text-white uppercase tracking-widest text-lg mb-1">
           {t("mapTracking")}

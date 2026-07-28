@@ -319,8 +319,8 @@ const Settings: FC = (): ReactElement => {
    */
   const settingsMarkup: ReactElement = (
     <div className="space-y-6 max-w-2xl">
-      <title>{t("settingsTitle")} - {t("appName")}</title>
-      <h2 className="text-2xl font-bold text-slate-800">{t("settingsTitle")}</h2>
+      <title>{`${t("settingsTitle")} - ${t("appName")}`}</title>
+      <h2 className="text-2xl font-bold text-white">{t("settingsTitle")}</h2>
 
       {/*
           지도 및 표시 환경설정 — 모두 settings/updateSettings로 영속화된다.

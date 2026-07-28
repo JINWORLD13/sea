@@ -133,10 +133,6 @@ export interface ReplayGhost {
   ts: number;
 }
 
-export interface UpdateOptions {
-  skipPathRecord?: boolean;
-}
-
 // 패치 규약: undefined = "변경 없음", 명시적 null = "이번 보고에서 미상".
 // Patch convention: undefined = "no change", explicit null = "unavailable now".
 export type ShipPatch = Partial<Omit<ShipData, "id">> & {
@@ -159,11 +155,6 @@ export interface ShipStore {
   replayGhost: ReplayGhost | null;
 
   upsertShips: (updates: ShipPatch[]) => void;
-  updateShip: (
-    id: string,
-    data: Partial<ShipData>,
-    options?: UpdateOptions,
-  ) => void;
   selectShip: (mmsi: string | null) => void;
   setRegion: (id: Region["id"]) => void;
   addToFleet: (mmsi: string) => void;

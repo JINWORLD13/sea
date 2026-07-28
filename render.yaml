@@ -5,6 +5,11 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: node server/proxy.js
+    healthCheckPath: /health
     envVars:
       - key: AISSTREAM_API_KEY
+        sync: false
+      # 배포 프런트 도메인으로 잠그면 제3자 페이지의 WebSocket 접속을 차단한다.
+      # Lock to the deployed frontend origin to block third-party WS clients.
+      - key: ALLOWED_ORIGINS
         sync: false

@@ -13,8 +13,11 @@ const envPath = path.resolve(__dirname, "../.env");
 dotenv.config({ path: envPath });
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
-const API_KEY =
-  process.env.AISSTREAM_API_KEY || process.env.VITE_AISSTREAM_API_KEY;
+// VITE_ 접두사 변수는 의도적으로 읽지 않는다 — 그 이름이 프런트 번들에
+// 복사되는 사고를 코드 레벨에서 차단하기 위함이다 (.env.example 참고).
+// Deliberately no VITE_-prefixed fallback: accepting that name here invites
+// copying it into the client bundle. See .env.example.
+const API_KEY = process.env.AISSTREAM_API_KEY;
 const AIS_URL = process.env.AISSTREAM_URL || "wss://stream.aisstream.io/v0/stream";
 const PORT = Number(process.env.PORT || process.env.PROXY_PORT || 8080);
 const MAX_BOUNDING_BOXES = Number(process.env.AIS_MAX_BOUNDING_BOXES || 1);
@@ -32,6 +35,16 @@ const UPSTREAM_MAX_BACKOFF_MS = Number(process.env.AIS_UPSTREAM_MAX_BACKOFF_MS |
 const MAX_CLIENTS = Number(process.env.AIS_MAX_CLIENTS || 20);
 const MAX_UPSTREAM_BOXES = Number(process.env.AIS_MAX_UPSTREAM_BOXES || 8);
 const RESUBSCRIBE_DEBOUNCE_MS = 2000;
+// 클라이언트 구독 메시지 최소 간격. 프런트는 400ms 디바운스로 보내므로
+// 정상 클라이언트는 걸리지 않고, 플러드만 조용히 무시된다.
+// Minimum interval between subscription messages per client. The frontend
+// debounces at 400ms, so only floods are (silently) ignored.
+const MIN_SUBSCRIBE_INTERVAL_MS = 300;
+// 클라이언트 → 프록시 메시지는 구독 요청뿐이므로 크게 잡을 이유가 없다
+// (ws 기본값 100MB는 OOM 벡터가 된다).
+// Client messages are tiny subscription payloads; the ws default of 100MB
+// is an OOM vector, so cap frames hard.
+const MAX_CLIENT_PAYLOAD_BYTES = 64 * 1024;
 const WATCHDOG_INTERVAL_MS = 30 * 1000;
 const UPSTREAM_STALE_MS = 90 * 1000;
 const CACHE_PRUNE_INTERVAL_MS = 30 * 1000;
@@ -57,11 +70,28 @@ if (!AIS_URL.startsWith("wss://")) {
 
 console.log(`[Proxy] API key loaded: ${API_KEY ? "yes" : "no"}`);
 
+// 허용 Origin 목록(쉼표 구분). 비워두면 모든 Origin 허용(로컬 개발 기본값).
+// 배포 시 ALLOWED_ORIGINS=https://your-app.vercel.app 형태로 잠근다.
+// Comma-separated Origin allowlist. Empty = allow all (local-dev default);
+// set ALLOWED_ORIGINS=https://your-app.vercel.app in production to lock down.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
 const app = express();
-app.use(cors());
+app.use(
+  cors(ALLOWED_ORIGINS.length > 0 ? { origin: ALLOWED_ORIGINS } : undefined),
+);
 
 const server = createServer(app);
-const wss = new WebSocketServer({ server });
+const wss = new WebSocketServer({
+  server,
+  maxPayload: MAX_CLIENT_PAYLOAD_BYTES,
+});
+wss.on("error", (err) => {
+  console.error("[Proxy] WebSocket server error:", err?.message || err);
+});
 
 /**
  * @typedef {{ month: number, day: number, hour: number, minute: number }} EtaFields
@@ -94,9 +124,10 @@ const wss = new WebSocketServer({ server });
  *   socket: WebSocket,
  *   boxes: number[][][],
  *   subscribedAt: number,
+ *   lastSubscribeAt: number,
  *   seenMmsis: Map<string, number>,
  *   relayedThisSecond: number,
- *   droppedMessages: number,
+ *   isAlive: boolean,
  * }} ProxyClient
  */
 
@@ -523,11 +554,9 @@ function relayToClients(wireText, lat, lng, mmsi, now) {
     if (!isPointInsideBoxes(lat, lng, client.boxes)) continue;
 
     if (!client.seenMmsis.has(mmsi) && client.seenMmsis.size >= MAX_TRACKED_MMSI) {
-      client.droppedMessages += 1;
       continue;
     }
     if (client.relayedThisSecond >= MAX_MESSAGES_PER_SECOND) {
-      client.droppedMessages += 1;
       continue;
     }
 
@@ -592,10 +621,29 @@ function normalizeBoundingBoxes(input) {
       };
     }
 
-    const minLat = Math.max(-90, Math.min(values[0], values[2]));
-    const maxLat = Math.min(90, Math.max(values[0], values[2]));
-    const minLng = Math.max(-180, Math.min(values[1], values[3]));
-    const maxLng = Math.min(180, Math.max(values[1], values[3]));
+    // 범위 밖 좌표는 클램프하지 않고 거부한다. 클램프하면 lat=200 같은 값이
+    // 뒤집힌 박스로 살아남아 그대로 업스트림에 전달될 수 있다.
+    // Reject out-of-range coordinates instead of clamping — clamping lets a
+    // value like lat=200 survive as an inverted box and reach the upstream.
+    const [lat1, lng1, lat2, lng2] = values;
+    if (
+      Math.abs(lat1) > 90 ||
+      Math.abs(lat2) > 90 ||
+      Math.abs(lng1) > 180 ||
+      Math.abs(lng2) > 180
+    ) {
+      return {
+        ok: false,
+        error: "INVALID_BOUNDING_BOX",
+        message:
+          "Latitudes must be within [-90, 90] and longitudes within [-180, 180].",
+      };
+    }
+
+    const minLat = Math.min(lat1, lat2);
+    const maxLat = Math.max(lat1, lat2);
+    const minLng = Math.min(lng1, lng2);
+    const maxLng = Math.max(lng1, lng2);
     const area = Math.abs((maxLat - minLat) * (maxLng - minLng));
 
     if (area <= 0 || area > MAX_BOX_AREA) {
@@ -858,12 +906,37 @@ const upstreamWatchdogTimer = setInterval(() => {
   } catch {
     // ping 실패는 close 핸들러가 정리한다 / a failed ping is handled by close
   }
+  // 클라이언트 유무와 무관하게 정체를 감지한다 — 워밍업 캐시가 이 소켓에
+  // 의존하므로, 유휴 중 죽은 업스트림을 방치하면 캐시가 TTL로 비어 버린다.
+  // Detect staleness regardless of connected clients — the warm cache depends
+  // on this socket, and a dead-but-idle upstream lets the cache drain via TTL.
   const stale =
     lastUpstreamMessageAt !== null &&
     Date.now() - lastUpstreamMessageAt > UPSTREAM_STALE_MS;
-  if (stale && clients.size >= 1) {
-    console.warn("[Proxy] Upstream stale for >90s with clients connected; terminating.");
+  if (stale) {
+    console.warn("[Proxy] Upstream stale for >90s; terminating for reconnect.");
     upstreamSocket.terminate();
+  }
+}, WATCHDOG_INTERVAL_MS);
+
+// 클라이언트 하트비트: 30초마다 ping을 보내고, 직전 주기에 pong이 없던
+// 소켓은 반쯤 닫힌 연결로 보고 정리한다 (FIN 없이 사라진 클라이언트가
+// 접속 슬롯과 업스트림 박스를 영구 점유하는 것을 방지).
+// Client heartbeat: ping every 30s and terminate sockets that missed the
+// previous pong — half-open connections must not hold client slots and
+// upstream box capacity forever.
+const clientHeartbeatTimer = setInterval(() => {
+  for (const client of clients) {
+    if (client.isAlive === false) {
+      client.socket.terminate(); // close 핸들러가 정리한다 / close handler cleans up
+      continue;
+    }
+    client.isAlive = false;
+    try {
+      client.socket.ping();
+    } catch {
+      // ping 실패는 close/error 핸들러가 정리한다 / handled by close/error
+    }
   }
 }, WATCHDOG_INTERVAL_MS);
 
@@ -886,7 +959,24 @@ const seenPruneTimer = setInterval(pruneSeenMmsis, SEEN_MMSI_PRUNE_INTERVAL_MS);
 // Client connection handling
 // ---------------------------------------------------------------------------
 
-wss.on("connection", (clientSocket) => {
+wss.on("connection", (clientSocket, req) => {
+  // 어떤 분기에서 닫히든 소켓 오류가 프로세스를 죽이지 못하게, 정리 로직이
+  // 붙기 전에 최소한의 error 리스너부터 단다 (리스너 0개인 'error' 이벤트는
+  // Node가 예외로 다시 던진다).
+  // Attach a minimal error listener before anything else — an 'error' event
+  // with zero listeners is re-thrown by Node and kills the process.
+  clientSocket.on("error", () => {});
+
+  // Origin 허용 목록이 설정된 경우에만 검사한다(브라우저 외 클라이언트 차단).
+  // Enforce the Origin allowlist when configured (blocks third-party pages).
+  if (ALLOWED_ORIGINS.length > 0) {
+    const origin = req.headers.origin;
+    if (!origin || !ALLOWED_ORIGINS.includes(origin)) {
+      clientSocket.close(1008, "Origin not allowed");
+      return;
+    }
+  }
+
   // 동시 접속 상한: 초과 접속은 WireError 후 정중히 닫는다.
   // Client cap: sockets beyond the limit get a WireError and are closed.
   if (clients.size >= MAX_CLIENTS) {
@@ -906,11 +996,16 @@ wss.on("connection", (clientSocket) => {
     socket: clientSocket,
     boxes: [],
     subscribedAt: 0,
+    lastSubscribeAt: 0,
     seenMmsis: new Map(),
     relayedThisSecond: 0,
-    droppedMessages: 0,
+    isAlive: true,
   };
   clients.add(client);
+
+  clientSocket.on("pong", () => {
+    client.isAlive = true;
+  });
 
   // 클라이언트 접속 시 업스트림이 죽어 있으면 즉시 깨운다.
   // Wake the upstream immediately if it is down when a client arrives.
@@ -929,6 +1024,33 @@ wss.on("connection", (clientSocket) => {
       return;
     }
 
+    // JSON.parse는 null/숫자/배열도 통과시킨다 — 객체가 아니면 여기서 끝.
+    // (프로퍼티 접근 전에 걸러야 한 줄짜리 페이로드로 죽지 않는다.)
+    // JSON.parse also accepts null/numbers/arrays; reject non-objects before
+    // any property access so a one-line payload can't crash the process.
+    if (
+      clientRequest === null ||
+      typeof clientRequest !== "object" ||
+      Array.isArray(clientRequest)
+    ) {
+      sendClientError(
+        clientSocket,
+        "INVALID_REQUEST",
+        "Subscription request must be a JSON object.",
+      );
+      return;
+    }
+
+    // 구독 처리에는 캐시 전체 스캔 + 스냅샷 전송 비용이 든다. 정상 클라이언트는
+    // 400ms 디바운스로 보내므로, 그보다 촘촘한 요청은 조용히 무시한다.
+    // Each subscribe costs a full cache scan + snapshot send. Legit clients
+    // debounce at 400ms, so anything tighter is silently ignored.
+    const receivedAt = Date.now();
+    if (receivedAt - client.lastSubscribeAt < MIN_SUBSCRIBE_INTERVAL_MS) {
+      return;
+    }
+    client.lastSubscribeAt = receivedAt;
+
     if (!API_KEY) {
       sendClientError(
         clientSocket,
@@ -945,13 +1067,15 @@ wss.on("connection", (clientSocket) => {
     }
 
     // 새 구독 영역 적용 후 즉시 캐시 스냅샷 전송 (즉시 화면 채움),
-    // 이어서 업스트림 박스 집합 재계산(디바운스).
+    // 이어서 업스트림 박스 집합 재계산(디바운스). seenMmsis는 초기화하지
+    // 않는다 — 재구독으로 추적 상한(MAX_TRACKED_MMSI)이 리셋되는 것을 막고,
+    // 오래된 항목은 TTL 정리에 맡긴다.
     // Apply the new area, push a cached snapshot immediately (instant fill),
-    // then recompute the upstream box set (debounced resubscribe).
+    // then recompute the upstream box set (debounced resubscribe). seenMmsis
+    // is deliberately NOT reset: resubscribing must not bypass the tracked-MMSI
+    // cap; stale entries expire via the TTL prune instead.
     client.boxes = boundsResult.boxes;
     client.subscribedAt = Date.now();
-    client.seenMmsis = new Map();
-    client.droppedMessages = 0;
 
     const snapshotCount = sendCachedSnapshot(client);
     scheduleUpstreamResubscribe();
@@ -1060,11 +1184,35 @@ app.get("/search", (req, res) => {
   });
 });
 
+server.on("error", (err) => {
+  if (err?.code === "EADDRINUSE") {
+    console.error(
+      `[Proxy] Port ${PORT} is already in use. Set PROXY_PORT to a free port (e.g. PROXY_PORT=8081) and restart.`,
+    );
+  } else {
+    console.error("[Proxy] HTTP server error:", err?.message || err);
+  }
+  process.exit(1);
+});
+
 server.listen(PORT, () => {
   console.log(`[Proxy] AIS proxy listening on port ${PORT}`);
   // 서버 기동 즉시 워밍업 시작 → 첫 클라이언트도 즉시 스냅샷 수신.
   // Start warming immediately on boot so the first client gets data instantly.
   connectUpstream();
+});
+
+// 마지막 안전망: 여기 도달한 예외는 버그지만, 공개 프록시에서 예외 한 번으로
+// 전체 클라이언트 연결과 캐시를 잃는 것보다는 기록하고 계속 서비스하는 쪽을
+// 택한다 (알려진 경로는 위에서 모두 개별 처리됨).
+// Last-resort net: anything landing here is a bug, but for a public proxy we
+// prefer logging and continuing over dropping every client and the cache.
+// All known paths are handled individually above.
+process.on("uncaughtException", (err) => {
+  console.error("[Proxy] Uncaught exception (continuing):", err?.stack || err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[Proxy] Unhandled rejection (continuing):", reason);
 });
 
 let shuttingDown = false;
@@ -1076,6 +1224,7 @@ function shutdown() {
   clearInterval(cachePruneTimer);
   clearInterval(seenPruneTimer);
   clearInterval(upstreamWatchdogTimer);
+  clearInterval(clientHeartbeatTimer);
   if (resubscribeTimer) clearTimeout(resubscribeTimer);
   if (upstreamReconnectTimer) clearTimeout(upstreamReconnectTimer);
   if (upstreamSocket) upstreamSocket.terminate();

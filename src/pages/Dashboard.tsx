@@ -239,7 +239,9 @@ const Dashboard = () => {
    */
   return (
     <div className="space-y-6 pb-12">
-      <title>Dashboard - {t("appName")}</title>
+      {/* React 19의 <title>은 단일 문자열 자식만 렌더한다 — 보간을 섞으면 빈 제목이 된다. */}
+      {/* React 19 hoisted <title> needs a single string child; mixed children render empty. */}
+      <title>{`Dashboard - ${t("appName")}`}</title>
       <ModeSwitcher platformMode={platformMode} onSwitchMode={handleSwitchMode} />
 
       {/*
