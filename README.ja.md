@@ -24,6 +24,21 @@
 > プロキシは Render の無料枠で動いているため、アイドル時はスリープする。初回
 > アクセス時はウェイクアップに伴い、ライブ船舶の表示まで最大1分ほどかかる場合がある。
 
+![ダッシュボード](docs/screenshots/01-dashboard.png)
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/02-live-map.png" alt="ライブマップ" /></td>
+<td width="50%"><img src="docs/screenshots/04-analytics.png" alt="アナリティクス" /></td>
+</tr>
+<tr>
+<td align="center"><b>ライブマップ</b> — ピクセルグリッドのクラスタリングと方位回転マーカー</td>
+<td align="center"><b>アナリティクス</b> — 現在のセッションで追跡した船舶の集計</td>
+</tr>
+</table>
+
+> 上記画面の数値はすべてキャプチャ時点の実際の AISStream フィードによるもの — モックは一切ない。
+
 ## 🚢 プロジェクト概要
 
 **実際の全世界AIS（Automatic Identification System）リアルタイムデータ**を基にした船舶管制インターフェース（モックデータではない）。AISStream.io の位置ストリームを Node プロキシ経由で受信し、クライアント側で衝突リスク（CPA/TCPA）を計算して、Leaflet マップと Three.js の 3D ビューに数百隻を描画する。

@@ -24,6 +24,21 @@
 > 프록시가 Render 무료 티어에서 돌기 때문에 유휴 시 잠들어 있음. 첫 접속 시
 > 깨어나는 동안 실시간 선박이 뜨기까지 최대 1분 정도 걸릴 수 있음.
 
+![대시보드](docs/screenshots/01-dashboard.png)
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/02-live-map.png" alt="라이브 맵" /></td>
+<td width="50%"><img src="docs/screenshots/04-analytics.png" alt="분석" /></td>
+</tr>
+<tr>
+<td align="center"><b>라이브 맵</b> — 픽셀 격자 클러스터링과 방위 회전 마커</td>
+<td align="center"><b>분석</b> — 현재 세션에서 추적한 선박 집계</td>
+</tr>
+</table>
+
+> 위 화면의 모든 숫자는 캡처 시점의 실제 AISStream 피드에서 나온 값임 — 목업 없음.
+
 ## 🚢 프로젝트 개요
 
 **실제 전 세계 AIS(Automatic Identification System) 실시간 데이터**를 기반으로 한 선박 관제 인터페이스임(모의 데이터 아님). AISStream.io의 위치 스트림을 Node 프록시를 거쳐 받고, 클라이언트에서 충돌 위험(CPA/TCPA)을 계산해 Leaflet 지도와 Three.js 3D 뷰에 수백 척을 렌더링함.

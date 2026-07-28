@@ -24,6 +24,21 @@ Real-time vessel monitoring interface on live global AIS data, inspired by AI au
 > The proxy runs on Render's free tier and sleeps when idle — the first visit
 > can take up to a minute to show live vessels while it wakes up.
 
+![Dashboard](docs/screenshots/01-dashboard.png)
+
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/02-live-map.png" alt="Live Map" /></td>
+<td width="50%"><img src="docs/screenshots/04-analytics.png" alt="Analytics" /></td>
+</tr>
+<tr>
+<td align="center"><b>Live Map</b> — pixel-grid clustering plus heading-rotated markers</td>
+<td align="center"><b>Analytics</b> — aggregated from vessels tracked this session</td>
+</tr>
+</table>
+
+> Every number in these screenshots came from the live AISStream feed at capture time — nothing is mocked.
+
 ## 🚢 Project Overview
 
 This project is a real-time vessel monitoring interface built on **live global AIS (Automatic Identification System) data** — not mock data. It streams positions from AISStream.io through a Node proxy, computes collision risk (CPA/TCPA) client-side, and renders hundreds of vessels on a Leaflet map plus a Three.js 3D view.
