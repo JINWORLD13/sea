@@ -2,6 +2,7 @@
 
 > 신입 프론트엔드 개발자 지원용 개인 프로젝트 (1인 개발)
 > 전 세계 실시간 AIS 스트림을 받아 선박을 추적하고 충돌 위험을 계산하는 웹 관제 화면
+> English version: [portfolio.en.md](portfolio.en.md)
 
 ---
 
