@@ -8,9 +8,9 @@ Welcome! Please select your preferred language to view the documentation:
 
 ---
 
-# AI Maritime Monitoring & Digital Twin System
+# SEATRACE — AI Maritime Monitoring System
 
-Real-time ship monitoring and digital twin interface inspired by AI autonomous navigation and smart port technology.
+Real-time vessel monitoring interface on live global AIS data, inspired by AI autonomous navigation and smart port technology. (An earlier "digital twin" framing was dropped deliberately — the 3D view renders only what AIS actually broadcasts.)
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)

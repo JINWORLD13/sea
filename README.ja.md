@@ -8,9 +8,9 @@
 
 ---
 
-# AI Maritime Monitoring & Digital Twin System
+# SEATRACE — AI Maritime Monitoring System
 
-海上船舶モニタリングおよびデジタルツインインターフェースのプロジェクト。
+実際の全世界AISデータに基づく海上船舶管制インターフェース。（初期の「デジタルツイン」という表現は意図的に廃止 — 3DビューはAISが実際に放送する値のみを描画する。）
 
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)
