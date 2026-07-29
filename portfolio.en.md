@@ -118,6 +118,20 @@ This is the part I spent the most time getting right. AIS is not omniscient, and
 - Subscription boxes from multiple clients are unioned, and upstream resubscription is debounced by 2 seconds (max 8 boxes).
 - **Client input is treated as hostile**: non-object payloads and out-of-range coordinates are rejected, frames are capped at 64 KB (the `ws` default of 100 MB is an OOM vector), subscription floods are ignored, a 30-second ping/pong heartbeat reaps half-open sockets, and an `ALLOWED_ORIGINS` allowlist can lock the endpoint to the deployed frontend. A last-resort `uncaughtException` handler makes sure one bad frame cannot drop every connected client and the warm cache with it.
 
+**Wire protocol spec**
+
+| `t` | Payload | When · frequency |
+| --- | --- | --- |
+| `pos` | `mmsi, lat, lng, sog, cog, hdg, nav, name, kind, ts` | Every position report (Msg 1/2/3/18/19/21) · high frequency |
+| `static` | `mmsi, name, imo, callsign, type, dest, eta, length, width, draught, ts` | Every static report (Msg 5/24) · roughly every 6 minutes |
+| `snapshot` | `ships: [...]` — position and static merged into one flat record | Once on connect/resubscribe · chunked at 100 ships |
+| `snapshotEnd` | `total` | End-of-snapshot signal |
+| `error` | `error, message` | Subscription validation failures, keyed by code |
+
+Client → proxy has exactly one message type: `{ "BoundingBoxes": [[[minLat, minLng], [maxLat, maxLng]]] }`
+
+The split between `pos` and `static` follows **rate of change**. Position and speed change every few seconds; name, IMO and dimensions change every few hours — bundling them would retransmit static data every second. The client merges the two back into a single `Ship` in an MMSI-keyed `Map`.
+
 **Result** — zero key exposure, and as a side effect all AIS protocol parsing disappeared from the client, which now only ever sees clean JSON.
 
 ---

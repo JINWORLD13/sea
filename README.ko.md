@@ -148,6 +148,26 @@ seatrace/
 
 **프론트 ↔ 프록시 서버 ↔ AISStream** — WebSocket 쌍방향 통신임. 프론트에서 구독 요청(예: BoundingBoxes)을 서버로 보내면 서버가 AISStream으로 전달하고, AIS 데이터는 AISStream → 서버 → 프론트로 스트리밍됨.
 
+### 와이어 프로토콜 (프록시 → 프론트)
+
+AISStream 원본 메시지를 그대로 중계하지 않고, `t` 필드로 판별하는 자체 프로토콜을 정의해 내려보냄. 프론트는 AIS 규격을 모른 채 정제된 JSON만 다루면 됨.
+
+| `t` | 페이로드 | 발생 시점 · 빈도 |
+| --- | --- | --- |
+| `pos` | `mmsi, lat, lng, sog, cog, hdg, nav, name, kind, ts` | 위치 보고(Msg 1/2/3/18/19/21)마다 · 고빈도 |
+| `static` | `mmsi, name, imo, callsign, type, dest, eta, length, width, draught, ts` | 정적 보고(Msg 5/24)마다 · 약 6분 주기 |
+| `snapshot` | `ships: [...]` — pos + static을 평탄화해 병합한 배열 | 접속·재구독 직후 1회 · 100척 청크 |
+| `snapshotEnd` | `total` | 스냅샷 청크가 모두 끝났음을 알림 |
+| `error` | `error, message` | 구독 검증 실패 등 (`BOUNDING_BOX_TOO_LARGE` 같은 코드로 구분) |
+
+클라이언트 → 프록시 방향은 구독 메시지 한 종류뿐임: `{ "BoundingBoxes": [[[minLat, minLng], [maxLat, maxLng]]] }`
+
+**왜 이렇게 나눴나** — 세 가지 기준으로 설계했음.
+
+1. **변경 빈도로 분리함**. 위경도·속도는 초 단위로 바뀌지만 선명·IMO·선종·치수는 몇 시간에 한 번 바뀜. 한 덩어리로 보내면 매초 안 변하는 데이터를 재전송하게 되므로 `pos` / `static`으로 나눴고, 프론트가 MMSI를 key로 하는 `Map`에서 둘을 병합함.
+2. **도메인 해석은 서버에서 끝냄**. AIS 센티널 값(SOG 102.3 = 미상, COG 360 = 미상, Heading 511 = 미상, ShipType 0 = 미상, ETA `00-00 24:60` = 미상)을 전부 서버에서 `null`로 변환함. 6비트 문자열의 `@` 패딩 제거, MMSI 접두사 규칙(`00`=기지국, `99`=항로표지) 분류도 서버 몫임. 그 결과 프론트 코드에 AIS 프로토콜 파싱 로직이 존재하지 않음.
+3. **바이트보다 메시지 개수가 비쌈**. 프레임 오버헤드·이벤트 루프·React 리렌더가 모두 메시지 개수에 비례하므로, 스냅샷은 100척 청크로 나눠 단일 거대 프레임을 피하고, 프론트는 1초 배치 flush로 개별 `pos`를 묶어 스토어 쓰기 1건으로 축약함.
+
 ### 보안
 
 - **서버 → AISStream**: API 키는 **WSS**(`wss://stream.aisstream.io`)로만 전송하며, AIS URL이 `wss://`가 아니면 서버가 기동을 거부함.

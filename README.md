@@ -154,6 +154,26 @@ seatrace/
 
 **Frontend ↔ Proxy server ↔ AISStream** — WebSocket bidirectional. The frontend sends subscription requests (e.g. BoundingBoxes) to the proxy; the proxy forwards them to AISStream; AIS data streams back AISStream → proxy → frontend.
 
+### Wire protocol (proxy → frontend)
+
+Raw AISStream messages are never relayed as-is. The proxy defines its own protocol, discriminated by a `t` field, so the frontend deals only with clean JSON and never has to know the AIS spec.
+
+| `t` | Payload | When · frequency |
+| --- | --- | --- |
+| `pos` | `mmsi, lat, lng, sog, cog, hdg, nav, name, kind, ts` | Every position report (Msg 1/2/3/18/19/21) · high frequency |
+| `static` | `mmsi, name, imo, callsign, type, dest, eta, length, width, draught, ts` | Every static report (Msg 5/24) · roughly every 6 minutes |
+| `snapshot` | `ships: [...]` — position and static merged into one flat record | Once on connect/resubscribe · chunked at 100 ships |
+| `snapshotEnd` | `total` | Signals that all snapshot chunks have been sent |
+| `error` | `error, message` | Subscription validation failures, keyed by code (e.g. `BOUNDING_BOX_TOO_LARGE`) |
+
+Client → proxy has exactly one message type: `{ "BoundingBoxes": [[[minLat, minLng], [maxLat, maxLng]]] }`
+
+**Why it is split this way** — three design rules.
+
+1. **Split by rate of change.** Position and speed change every few seconds; name, IMO, ship type and dimensions change every few hours. Shipping them together means retransmitting static data every second, so they are split into `pos` / `static` and merged on the client in an MMSI-keyed `Map`.
+2. **Domain decoding ends at the server.** AIS sentinel values (SOG 102.3 = unavailable, COG 360 = unavailable, Heading 511 = unavailable, ShipType 0 = unavailable, ETA `00-00 24:60` = unavailable) are all normalized to `null` server-side, along with `@`-padding removal on 6-bit strings and MMSI prefix classification (`00` = base station, `99` = aid to navigation). As a result there is no AIS parsing logic anywhere in the frontend.
+3. **Message count costs more than bytes.** Frame overhead, event-loop work and React re-renders all scale with the number of messages — so snapshots are chunked at 100 ships to avoid one giant frame, and the client coalesces individual `pos` messages into a single store write per 1-second batch flush.
+
 ### Security (API keys)
 
 All use of the AIS API key is over secure channels only:

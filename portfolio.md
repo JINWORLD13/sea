@@ -97,6 +97,20 @@ AISStream 원본  ─── 혼잡 해역 기준 초당 수백 msg ──┐
 - 여러 클라이언트의 구독 박스를 합집합으로 묶어 상류 재구독은 2초 디바운스 (최대 8박스)
 - **클라이언트 입력은 신뢰하지 않음** — 객체가 아닌 페이로드·범위 밖 좌표는 검증 단계에서 거부하고, 프레임 크기 64KB 상한(`ws` 기본값 100MB 대체)·구독 플러드 무시·30초 ping/pong 하트비트·`ALLOWED_ORIGINS` Origin 허용목록으로 공개 엔드포인트를 방어함. 마지막 안전망으로 `uncaughtException` 핸들러를 두어, 예외 하나가 전체 클라이언트 연결과 캐시를 잃게 만들지 않음
 
+**와이어 프로토콜 스펙**
+
+| `t` | 페이로드 | 발생 시점 · 빈도 |
+| --- | --- | --- |
+| `pos` | `mmsi, lat, lng, sog, cog, hdg, nav, name, kind, ts` | 위치 보고(Msg 1/2/3/18/19/21)마다 · 고빈도 |
+| `static` | `mmsi, name, imo, callsign, type, dest, eta, length, width, draught, ts` | 정적 보고(Msg 5/24)마다 · 약 6분 주기 |
+| `snapshot` | `ships: [...]` — pos + static을 평탄화해 병합한 배열 | 접속·재구독 직후 1회 · 100척 청크 |
+| `snapshotEnd` | `total` | 스냅샷 청크 종료 신호 |
+| `error` | `error, message` | 구독 검증 실패 등 (코드로 구분) |
+
+클라이언트 → 프록시 방향은 구독 메시지 한 종류뿐임: `{ "BoundingBoxes": [[[minLat, minLng], [maxLat, maxLng]]] }`
+
+`pos`와 `static`을 나눈 기준은 **변경 빈도**임. 위경도·속도는 초 단위로 바뀌지만 선명·IMO·치수는 몇 시간에 한 번 바뀌므로, 한 덩어리로 보내면 매초 안 변하는 데이터를 재전송하게 됨. 프론트는 MMSI를 key로 하는 `Map`에서 둘을 병합해 하나의 `Ship`으로 만듦.
+
 **결과** — 키 노출 0. 동시에 프론트 코드에서 AIS 프로토콜 파싱 로직이 완전히 사라져, 클라이언트는 정제된 JSON만 다루면 됨.
 
 ---
