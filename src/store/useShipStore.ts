@@ -8,6 +8,11 @@ import {
   cogSogToVelocity,
   calculateCPA,
 } from "../utils/maritimeMath";
+import {
+  INITIAL_GRADE_STATE,
+  gradeRisk,
+  type RiskGradeState,
+} from "../utils/riskGrading";
 import { categoryFromTypeCode } from "../utils/aisTypes";
 import type {
   AlertEntry,
@@ -167,6 +172,18 @@ const isInRestrictedZone = (
 // Dedupe map for CPA feed entries — last feed timestamp per MMSI.
 const recentCpaFeedByMmsi = new Map<string, number>();
 
+// 등급 히스테리시스 상태 — MMSI별로 직전 등급과 강등 대기 시각을 들고 있는다.
+// 판정 자체는 utils/riskGrading의 순수 함수가 하고, 여기서는 상태만 보관한다.
+// Hysteresis state per MMSI. The decision lives in the pure function in
+// utils/riskGrading; this map only carries the history it needs.
+const riskGradeByMmsi = new Map<string, RiskGradeState>();
+
+// 등급 이력은 "선택한 본선 기준"으로만 의미가 있다. 본선이 바뀌면 이전 기준의
+// 이력이 남아 새 본선의 첫 판정을 오염시키므로 통째로 버린다.
+// The history is only meaningful relative to the selected own-ship; when that
+// changes, stale history would poison the first grading, so drop it wholesale.
+let gradeBaselineMmsi: string | null = null;
+
 // 지오펜싱 + 충돌 위험(CPA)을 단일 패스로 계산하여 한 번의 set으로 반영한다.
 // 이전 구현은 선박마다 updateShip을 개별 호출해 매번 전체 ships 객체를
 // 복사(O(n²))했고, 구독자에게 n번의 갱신 알림을 보내 큰 렌더 부하를 유발했다.
@@ -208,9 +225,22 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
   }
 
   const now = Date.now();
+
+  // 본선이 바뀌면 등급 이력을 폐기한다.
+  // Discard grading history when the own-ship reference changes.
+  if (gradeBaselineMmsi !== selectedId) {
+    riskGradeByMmsi.clear();
+    gradeBaselineMmsi = selectedId;
+  }
+
   let nextShips = state.ships;
   let changed = false;
   const feedAdditions: AlertEntry[] = [];
+  // 이번 패스에서 실제로 판정한 MMSI. 여기 없는 항목은 화면/추적에서 사라진
+  // 선박이므로 등급 이력도 함께 버려 맵이 무한히 자라지 않게 한다.
+  // MMSIs graded in this pass; anything missing has left tracking, so its
+  // history is evicted to keep the map bounded.
+  const gradedThisPass = new Set<string>();
 
   // 중복 방지 맵이 계속 자라지 않도록 오래된 항목을 주기적으로 정리한다.
   // Keep the dedupe map bounded by evicting entries past the window.
@@ -265,22 +295,32 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
       const otherVel = cpaVelocity(ship);
       const cpa = calculateCPA(myPos, myVel, otherPos, otherVel);
 
-      let severity: "safe" | "warning" | "danger" = "safe";
-      if (cpa.cpaDistance < 500 && cpa.tcpa > 0 && cpa.tcpa < 360) {
-        severity = "danger";
-      } else if (cpa.cpaDistance < 1500 && cpa.tcpa > 0 && cpa.tcpa < 720) {
-        severity = "warning";
-      }
+      // 등급 판정은 순수 함수에 맡긴다. 임계값 근처에서 CPA가 몇 미터씩
+      // 오르내려도 등급이 뒤집히지 않도록 진입선/해제선을 분리하고,
+      // 강등에는 유예를 둔다 (승격은 즉시).
+      // Grading is delegated to the pure function: separate enter/release
+      // thresholds stop the grade flipping on metre-scale jitter, and
+      // downgrades need a dwell while upgrades apply at once.
+      const prevGrade = riskGradeByMmsi.get(id) ?? INITIAL_GRADE_STATE;
+      const grade = gradeRisk(prevGrade, cpa.cpaDistance, cpa.tcpa, now);
+      if (grade !== prevGrade) riskGradeByMmsi.set(id, grade);
+      gradedThisPass.add(id);
+      const severity = grade.severity;
+      const becameDanger =
+        severity === "danger" && prevGrade.severity !== "danger";
+
       nextRisk = {
         cpaDistance: cpa.cpaDistance,
         tcpa: cpa.tcpa,
         severity,
       };
 
-      // 선택 선박 기준 CPA 위험은 피드에도 올린다 (MMSI당 5분에 한 번).
-      // CPA danger against the selected ship also feeds the global list,
-      // deduped per MMSI per 5 minutes.
-      if (severity === "danger") {
+      // 선택 선박 기준 CPA 위험은 피드에도 올린다. safe/warning -> danger로
+      // 넘어가는 에지에서만 발생시키고(지오펜스와 같은 규칙), 등급이 실제로
+      // 왕복하는 경우를 대비해 MMSI당 5분 디듀프를 함께 건다.
+      // Feed entries fire on the edge into danger (same rule as the geofence),
+      // with a 5-minute per-MMSI dedupe as a backstop for real oscillation.
+      if (becameDanger) {
         const lastFeedAt = recentCpaFeedByMmsi.get(id) ?? 0;
         if (now - lastFeedAt >= CPA_FEED_DEDUPE_MS) {
           recentCpaFeedByMmsi.set(id, now);
@@ -315,6 +355,12 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
         alerts: nextAlerts,
       };
       changed = true;
+    }
+  }
+
+  if (riskGradeByMmsi.size > gradedThisPass.size) {
+    for (const mmsi of riskGradeByMmsi.keys()) {
+      if (!gradedThisPass.has(mmsi)) riskGradeByMmsi.delete(mmsi);
     }
   }
 

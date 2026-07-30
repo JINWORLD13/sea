@@ -24,5 +24,8 @@
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true
   },
-  "include": ["src"]
+  "include": ["src"],
+  // 테스트 파일은 vitest가 자체 트랜스파일한다 (앱 빌드 대상이 아님).
+  // Test files are transpiled by vitest and are not part of the app build.
+  "exclude": ["src/**/*.test.ts"]
 }
