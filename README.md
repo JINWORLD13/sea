@@ -19,6 +19,8 @@ Real-time vessel monitoring interface on live global AIS data, inspired by AI au
 ![Zustand](https://img.shields.io/badge/State_Management-Zustand-orange)
 ![License](https://img.shields.io/badge/license-MIT-blue.svg)
 
+**Duration:** 2026.02 ~ 2026.03 · **Team:** Solo (architecture · frontend · proxy server · maritime algorithms)
+
 **🔗 Live Demo:** [vts-tau-navy.vercel.app](https://vts-tau-navy.vercel.app)
 
 > The proxy runs on Render's free tier and sleeps when idle — the first visit
@@ -57,18 +59,22 @@ The central engineering problem was **throttling a stream that arrives at hundre
    - Heading and speed from live AIS, smoothed with Lerp interpolation
    - Note: AIS carries no pitch/roll telemetry, so the 3D view reflects only what is actually received
 
-3. **Collision Risk (CPA/TCPA)**
-   - Closest Point of Approach distance and time from the relative-motion quadratic (500 m / 6 min danger, 1500 m / 12 min warning)
-   - **Range alone is not enough** — a vessel counts as a risk only while TCPA is positive and inside the horizon. One already past its CPA is safe at 50 m
-   - **No alert flapping** — a Schmitt trigger (enter at 500 m, release at 650 m) plus a 20-second dwell on downgrades only; upgrades are immediate
-   - **Pure functions, under test** — `utils/maritimeMath.ts` + `utils/riskGrading.ts`, 36 golden-case tests drawn from real encounter situations
+3. **Collision Risk (CPA/TCPA)** — *the formula is not the body of work; everything wrapped around it is*
+   - CPA/TCPA is a quadratic in the relative-velocity vector, so **the implementation is fifteen lines**. The time went into the places it breaks once wrapped around real data
+   - **Coordinate frame** — subtracting raw lat/lng overestimates east-west range by **22%** off Busan (35°N). The longitude delta is scaled by `cos(reference latitude)` into metres. **0.005° of longitude is really 455 m but reads as 556 m uncorrected — the danger grade is missed entirely**
+   - **Numerical edge cases** — identical course and speed drives relative velocity to zero and the TCPA denominator with it. **When the squared relative velocity falls below `1e-6`, the current range is used**
+   - **Suppressing false positives** — the sign of TCPA is checked together with the horizon. **A vessel already past its closest point is safe at 50 m**
+   - **Never fabricating a missing value** — when COG *and* heading are both absent (common on Class-B), **0° is not used as a default; the vessel is treated as stationary**, which blocks a fictitious "steaming due north" vector
+   - **No alert flapping** — a **Schmitt trigger (enter at 500 m, release at 650 m)** plus a **20-second dwell on downgrades only; upgrades are immediate**. An alert should fire fast and clear slow (the warning grade is judged the same way against CPA 1,500 m / TCPA 12 min)
+   - **Verification** — the verdict path is isolated as **pure functions** with no rendering dependency, and real encounter situations are pinned as **golden cases**. **36 Vitest tests pass**
    - Scans every 2 seconds, O(n) against the selected own-ship
 
 4. **Geofencing**
-   - Automatic alert when a vessel enters Busan restricted waters
+   - Automatic alert when a vessel enters Busan restricted waters — entering vessels are flagged instantly with an **orange outline and glow**
 
 5. **Operation Modes**
-   - Fleet / Safety / Marina mode switching
+   - Fleet / Safety / Marina mode switching — registered-fleet filter, global alert-feed monitoring, and a small-craft (< 7 kn) filter respectively
+   - Analytics is aggregated from the current session only, and the UI says so on screen
 
 6. **High-Performance State Management**
    - Zustand with selector-based subscriptions and copy-on-write updates
@@ -208,7 +214,7 @@ All use of the AIS API key is over secure channels only:
   - **Shared rAF ticker** (`markerAnimation.ts`): every marker shares one `requestAnimationFrame` loop that drives `layer.setLatLng()` directly on the Leaflet layer — **zero React re-renders**. The ticker stops itself when no tween is active.
   - **Snap on discontinuity**: jumps over 500m (signal loss and recovery) skip interpolation so vessels never appear to slide across the sea.
   - **Degrade under load**: interpolation is disabled below zoom 11 or above 150 rendered markers, and `prefers-reduced-motion` is respected.
-  - **Maritime Math**: utilities convert COG (Course Over Ground) and SOG (Speed Over Ground) into velocity vectors, used for both dead reckoning and CPA computation.
+  - **Maritime Math**: utilities convert COG (Course Over Ground) and SOG (Speed Over Ground) into velocity vectors, which feed the CPA computation.
 
 ### 3. Ghost Sockets Under React StrictMode
 
@@ -257,8 +263,11 @@ These are deliberate, and worth stating plainly:
 - **Fuel consumption and CO2 estimates were removed** for the same reason — they cannot be derived from AIS, and unfounded numbers on a monitoring dashboard are worse than no numbers.
 - **Analytics aggregates the current session only**, not a historical corpus. The UI labels it as such.
 - **The server cache is in-memory**, so it is lost when the proxy restarts. Scaling to multiple instances would need an external store such as Redis.
-- **The hysteresis constants (1.3× release ratio, 20-second dwell) are judgement, not measurement.** They trade flapping against how long an alert lingers after the risk has passed, and would need tuning against real operational logs.
-- **CPA is computed point-to-point.** Real risk depends on hull-to-hull separation given each vessel's length and beam, and COLREG assigns different give-way duties by encounter type (head-on, overtaking, crossing). This build looks only at range and time.
+- **No dead-reckoning interpolation yet.** AIS update intervals vary wildly — roughly 3 minutes at anchor, 10 seconds at low speed, 2 seconds at high speed — so a moored vessel and one whose transponder has gone silent look identical on screen. Interpolating position from the last COG/SOG and fading a vessel to `stale` after a period of silence is the next step.
+- **The hysteresis constants (1.3× release ratio, 20-second dwell) are judgement, not measurement.** They trade flapping against how long an alert lingers after the risk has passed, and the optimum cannot be known without real VTS operational logs.
+- **CPA is computed point-to-point.** Real risk depends on hull-to-hull separation given each vessel's length and beam.
+- **COLREG encounter situations are not classified.** Head-on, overtaking and crossing carry different give-way duties, but this build looks only at range and time.
+- **No time-series store.** Long-range track playback and statistics would need a separate store.
 - **No performance numbers yet.** Capturing FPS, frame time, and messages/second before and after the optimizations is still outstanding.
 
 ## 🚀 Future Roadmap

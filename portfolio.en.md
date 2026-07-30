@@ -16,7 +16,7 @@ The core engineering problem was **throttling a live AIS WebSocket stream that a
 |  |  |
 |---|---|
 | **Project** | SEATRACE — Real-time AIS Vessel Tracking |
-| **Scope / team** | Solo (product, frontend, proxy server, maritime algorithms) |
+| **Period / team** | Feb 2026 – Mar 2026 · Solo (design, frontend, proxy server, maritime algorithms) |
 | **Data source** | [AISStream.io](https://aisstream.io) — live global AIS over WebSocket (**not mock data**) |
 | **Size** | ~9,000 lines TypeScript/TSX + ~1,100 lines Node proxy |
 | **Screens** | Dashboard · Live Map · Fleet Status · Analytics · Settings |
@@ -75,7 +75,7 @@ Raw AISStream  ─── hundreds of msg/s in a busy strait ──┐
                                                         │
  ┌──────────────────────────────────────────────────────▼─────────────────┐
  │ ④ Render layer (useShipSnapshot.ts + components/map/)                  │
- │   · Per-view 700–1,200 ms snapshot throttle inside startTransition     │
+ │   · Per-view 800–1,200 ms snapshot throttle inside startTransition     │
  │   · Viewport culling → 250-marker render cap (nearest-to-focus first)  │
  │   · Pixel-grid clustering (64 px) below zoom 12                        │
  │   · Marker motion via one shared rAF ticker → zero React re-renders    │
@@ -223,14 +223,14 @@ Distance alone is not enough. The actual classification also checks:
 |---|---|---|
 | TCPA ≤ 0 | Not an alert | The closest point is already past — the vessels are **separating**. Distance alone produces a false alarm here |
 | TCPA beyond the horizon | Not an alert | A prediction that far out is invalidated by a single course change |
-| Relative velocity ≈ 0 | Use current distance | The squared relative velocity is the denominator, so parallel tracks make TCPA diverge |
+| Relative velocity ≈ 0 | Fall back to the current distance when the squared relative velocity is below `1e-6` | The squared relative velocity is the denominator, so identical course and speed makes the TCPA term collapse |
 | **COG and heading both unknown** | **Treat as stationary** | The proxy honestly nulls COG ≥ 360 and heading 511 (common on Class-B). Defaulting to 0° would model the vessel as steaming due north and fire phantom alerts |
 | CPA < 500 m and TCPA < 6 min | danger | Tighter than the operational norm (~0.5–1.0 NM), narrowed so events are observable in a demo; exposed as a tunable constant |
 | CPA < 1,500 m and TCPA < 12 min | warning | Same |
 
 ---
 
-### 4-1. Making the verdict trustworthy
+### 4-1. Collision risk (CPA / TCPA) — the formula is not the body of work; what wraps it is
 
 **The formula was never the hard part.** It is a quadratic in the relative-velocity vector — fifteen lines. What took the time was **every place that formula goes wrong once it is wrapped around real data**: AIS fields go missing, coordinates are angles rather than metres, and every value jitters second to second.
 
@@ -337,9 +337,11 @@ Stated plainly, because they are deliberate:
 - **Fuel and CO2 estimates were removed for the same reason.** They cannot be derived from AIS, and unfounded numbers on a monitoring dashboard are worse than no numbers.
 - **Analytics aggregates the current session only**, not a historical corpus. The UI labels it as such.
 - **The server cache is in-memory**, so it is lost when the proxy restarts. Scaling to multiple instances would need an external store such as Redis.
+- **No dead-reckoning interpolation.** AIS report intervals vary wildly — about 3 minutes at anchor, 10 seconds at low speed, 2 seconds at high speed — so a vessel riding at anchor and a vessel whose transmission has dropped out look identical on screen.
 - **CPA is computed point-to-point.** Real collision risk should account for vessel length and beam; the static message carries those dimensions, which would change the verdict for large vessels.
 - **COLREG encounter types are not classified.** Head-on, overtaking, and crossing carry different give-way obligations; adding the rate of change of relative bearing would allow classifying them.
 - **The hysteresis constants (1.3× release ratio, 20-second dwell) are judgement, not measurement.** They trade flapping against how long an alert lingers after the risk has passed, and the optimum is not knowable without real operational logs.
+- **No time-series store.** Long-range track replay and historical statistics would require a dedicated store of their own.
 - **No performance numbers yet.** Capturing FPS, frame time, and messages/second before and after the optimizations is still outstanding.
 
 ---
