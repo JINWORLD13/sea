@@ -40,6 +40,7 @@ My background is relevant here: I sailed as a deck officer, so I had watched ARP
 | **Backend (proxy)** | Node.js, Express 5, `ws` |
 | **Styling** | Tailwind CSS 3, Lucide React |
 | **i18n** | i18next (Korean · English · Japanese) |
+| **Testing** | Vitest (36 unit tests over the maritime-math and risk-grading pure functions) |
 
 ---
 
@@ -229,6 +230,53 @@ Distance alone is not enough. The actual classification also checks:
 
 ---
 
+### 4-1. Making the verdict trustworthy
+
+**The formula was never the hard part.** It is a quadratic in the relative-velocity vector — fifteen lines. What took the time was **every place that formula goes wrong once it is wrapped around real data**: AIS fields go missing, coordinates are angles rather than metres, and every value jitters second to second.
+
+**(1) The coordinate frame, or how to be 22% wrong without noticing**
+
+A degree of latitude is ~111 km anywhere; a degree of longitude shrinks toward the poles. Off Busan (~35°N), `cos 35° ≈ 0.819`, so subtracting raw lat/lng **overestimates east-west range by about 22%**.
+
+```ts
+const lngScale = latScale * Math.cos(degToRad(refLat));  // longitude scale at the reference latitude
+```
+
+At a 500 m threshold that one line changes the verdict. 0.005° of longitude off Busan is really **455 m**; uncorrected it reads **556 m**, and the danger grade is missed entirely. This is the kind of bug that is completely invisible on screen.
+
+**(2) Alerts that do not flicker — a Schmitt trigger with an asymmetric dwell**
+
+When CPA jitters by a few metres around a threshold, the grade flips on every sweep: 499 m → danger, 501 m → warning, danger again. Every individual value is correct and the screen is still unusable.
+
+The fix was to separate the enter line from the release line and make the transitions asymmetric ([riskGrading.ts](src/utils/riskGrading.ts)):
+
+- **Enter at 500 m, release at 650 m** — a vessel already in alert is re-judged against the widened threshold, so the same 550 m reading resolves differently depending on the previous state
+- **Upgrades immediately, downgrades after a 20-second dwell** — the lower grade must hold continuously before it applies, and closing back in resets the timer
+- **Feed entries are edge-triggered** — they fire on the transition into danger, with a 5-minute per-MMSI dedupe as a backstop
+
+An alert should fire fast and clear slow. Those two directions are not symmetric, and treating them as if they were is what makes an alert panel unreadable.
+
+**(3) Verification — pinning down what the eye cannot check**
+
+The entire verdict path is isolated as pure functions with no rendering dependency, and **real encounter situations became the test cases**:
+
+| Scenario | What it pins down |
+|---|---|
+| Head-on (2 km, 10 m/s each) | CPA 0 m, TCPA 100 s |
+| Crossing at right angles | 1.4 km apart now, collision in 100 s |
+| Overtaking (twice the speed astern) | 100 m lateral separation |
+| Stationary target | CPA still holds when only own-ship moves |
+| Parallel tracks | Finite result instead of a division by zero |
+| Already separating | Safe at 1 km — the classic false-alarm case |
+| Threshold oscillation (495 ↔ 505 m) | Grade never flips across 10 sweeps |
+| Downgrade timer reset | Closing back in restarts the full 20 s |
+
+36 Vitest tests pass via `npm test`.
+
+The reason for splitting it out is that **maritime math cannot be verified by eye.** Vessels can glide across the chart perfectly plausibly while the alerts behind them are computed from ranges that are 22% wrong, and no screenshot will ever show that. Separating the computation from the UI is what makes "this number is correct" a provable claim rather than an impression.
+
+---
+
 ### 5. Moving hundreds of markers smoothly
 
 **Problem** — AIS position reports arrive at irregular multi-second intervals, so markers teleport. But interpolating through React state would mean 60 fps × 250 markers of re-render work.
@@ -291,6 +339,8 @@ Stated plainly, because they are deliberate:
 - **The server cache is in-memory**, so it is lost when the proxy restarts. Scaling to multiple instances would need an external store such as Redis.
 - **CPA is computed point-to-point.** Real collision risk should account for vessel length and beam; the static message carries those dimensions, which would change the verdict for large vessels.
 - **COLREG encounter types are not classified.** Head-on, overtaking, and crossing carry different give-way obligations; adding the rate of change of relative bearing would allow classifying them.
+- **The hysteresis constants (1.3× release ratio, 20-second dwell) are judgement, not measurement.** They trade flapping against how long an alert lingers after the risk has passed, and the optimum is not knowable without real operational logs.
+- **No performance numbers yet.** Capturing FPS, frame time, and messages/second before and after the optimizations is still outstanding.
 
 ---
 
@@ -299,3 +349,5 @@ Stated plainly, because they are deliberate:
 The biggest lesson was that **"real-time" is a design problem, not a performance problem.** I started out assuming more `React.memo` and `useMemo` would fix it. The actual fix was deciding *at which layer, and by how much, to reduce the data before it ever reaches the screen*. One line capping the proxy at 180 messages per second did more than any amount of memoization in the frontend.
 
 The second was the value of **not inventing data**. Filling gaps with mock values makes the screen look richer, and in that same moment the project stops being a monitoring system and becomes something that merely looks like one. Taking features out is what made it trustworthy.
+
+The third was that **knowing a formula and making it trustworthy are different jobs.** CPA/TCPA is a quadratic you can look up, and implementing it takes fifteen lines. The work was everywhere else: the coordinate correction, the division by zero, the missing fields, the flapping at the threshold, and the separation into pure functions that makes "this number is correct" something I can demonstrate rather than assert. **Being able to use an algorithm turned out to be much easier than knowing where it breaks on real data and closing those paths off.**

@@ -58,8 +58,11 @@ The central engineering problem was **throttling a stream that arrives at hundre
    - Note: AIS carries no pitch/roll telemetry, so the 3D view reflects only what is actually received
 
 3. **Collision Risk (CPA/TCPA)**
-   - Closest Point of Approach distance and time between vessels
-   - Auto risk level (500m danger, 1500m warning); fleet scan every 2 seconds
+   - Closest Point of Approach distance and time from the relative-motion quadratic (500 m / 6 min danger, 1500 m / 12 min warning)
+   - **Range alone is not enough** — a vessel counts as a risk only while TCPA is positive and inside the horizon. One already past its CPA is safe at 50 m
+   - **No alert flapping** — a Schmitt trigger (enter at 500 m, release at 650 m) plus a 20-second dwell on downgrades only; upgrades are immediate
+   - **Pure functions, under test** — `utils/maritimeMath.ts` + `utils/riskGrading.ts`, 36 golden-case tests drawn from real encounter situations
+   - Scans every 2 seconds, O(n) against the selected own-ship
 
 4. **Geofencing**
    - Automatic alert when a vessel enters Busan restricted waters
@@ -87,6 +90,7 @@ The central engineering problem was **throttling a stream that arrives at hundre
 - **Styling**: Tailwind CSS, Lucide React
 - **Data source**: AISStream.io (live global AIS over WebSocket)
 - **i18n**: i18next (Korean, English, Japanese)
+- **Testing**: Vitest — 36 unit tests over the maritime-math and risk-grading pure functions (`npm test`)
 
 ## 📂 Project Structure
 
@@ -108,7 +112,11 @@ seatrace/
 │   │   └── map/          # Leaflet map, markers, clustering, rAF interpolation
 │   ├── hooks/
 │   │   └── useShipSnapshot.ts # Render throttling hook
-│   ├── utils/            # Maritime math (CPA, latLngToXY, cogSogToVelocity)
+│   ├── utils/
+│   │   ├── maritimeMath.ts      # Maritime math (CPA/TCPA, latLngToXY, cogSogToVelocity)
+│   │   ├── riskGrading.ts       # Risk grading (Schmitt trigger + downgrade dwell)
+│   │   ├── maritimeMath.test.ts # Golden cases per encounter situation
+│   │   └── riskGrading.test.ts  # Flapping and asymmetric-transition tests
 │   ├── constants/        # Translations (i18n)
 │   ├── i18n.ts           # i18next setup and language detection
 │   └── pages/            # Dashboard, LiveMap, FleetStatus, Analytics, Settings
@@ -229,6 +237,18 @@ All use of the AIS API key is over secure channels only:
   - A vessel is never created from static-only data, which prevents phantom markers at (0, 0).
   - Unknown values are displayed as unknown rather than filled with plausible-looking defaults.
 
+### 6. Making the Collision Verdict Trustworthy
+
+- **Problem**: the CPA/TCPA formula itself is a quadratic in the relative-velocity vector — fifteen lines. The hard part is not the formula but **every place it goes wrong once wrapped around real data**. AIS fields go missing, coordinates are angles rather than metres, and every value jitters second to second.
+- **Solution** — five separate concerns, each handled in code:
+  - **Coordinate frame** (`latLngToXY`): subtracting raw lat/lng overestimates east-west range by ~22% off Busan (~35°N, `cos 35° ≈ 0.819`). Positions are projected onto a local plane with the longitude delta scaled by `cos(refLat)`. At a 500 m threshold that single factor changes the verdict: 0.005° of longitude is really 455 m, but reads as 556 m uncorrected — the danger grade is missed entirely.
+  - **Numerical edge cases** (`calculateCPA`): identical course and speed drives relative velocity to zero and the TCPA denominator with it. When the squared relative velocity falls below `1e-6`, the current range is used as the CPA. A CPA already in the past (`tcpa < 0`) falls through the same path.
+  - **Suppressing false positives**: by range alone, a vessel that has already passed its closest point still reads as danger. Checking the **sign of TCPA together with the horizon** narrows the verdict to encounters that need action now.
+  - **Never fabricating a missing value** (`cpaVelocity`): when COG *and* heading are both absent — common on Class-B transponders — the vessel is treated as stationary rather than defaulting to 0°. The proxy honestly nulls the sentinels (COG 360, heading 511); filling in 0° here would invent a **"steaming due north"** vector and poison the alerts.
+  - **No alert flapping** (`riskGrading.ts`): metre-scale jitter around a threshold flips the grade on every scan. A Schmitt trigger separates the enter line (500 m) from the release line (650 m), and a 20-second dwell applies to **downgrades only**. An alert should fire fast and clear slow — the two directions are not symmetric.
+- **Verification**: the whole verdict path is isolated as pure functions with no rendering dependency, and real encounter situations — head-on, crossing, overtaking, stationary target, parallel tracks, already separating — became the golden cases. 36 Vitest tests pass via `npm test`.
+  - Why split it out: **maritime math cannot be verified by eye.** The screen can look perfectly plausible while alerts are computed from ranges that are 22% wrong, and no screenshot will show it.
+
 ## ⚠️ Known Limitations
 
 These are deliberate, and worth stating plainly:
@@ -237,6 +257,9 @@ These are deliberate, and worth stating plainly:
 - **Fuel consumption and CO2 estimates were removed** for the same reason — they cannot be derived from AIS, and unfounded numbers on a monitoring dashboard are worse than no numbers.
 - **Analytics aggregates the current session only**, not a historical corpus. The UI labels it as such.
 - **The server cache is in-memory**, so it is lost when the proxy restarts. Scaling to multiple instances would need an external store such as Redis.
+- **The hysteresis constants (1.3× release ratio, 20-second dwell) are judgement, not measurement.** They trade flapping against how long an alert lingers after the risk has passed, and would need tuning against real operational logs.
+- **CPA is computed point-to-point.** Real risk depends on hull-to-hull separation given each vessel's length and beam, and COLREG assigns different give-way duties by encounter type (head-on, overtaking, crossing). This build looks only at range and time.
+- **No performance numbers yet.** Capturing FPS, frame time, and messages/second before and after the optimizations is still outstanding.
 
 ## 🚀 Future Roadmap
 
