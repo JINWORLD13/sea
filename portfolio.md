@@ -41,7 +41,7 @@
 | **백엔드(프록시)** | Node.js, Express 5, `ws` |
 | **스타일링** | Tailwind CSS 3, Lucide React |
 | **국제화** | i18next (한국어 · 영어 · 일본어) |
-| **테스트** | Vitest (해상 수학 · 위험 등급 판정 순수 함수 36개) |
+| **테스트** | Vitest 42개 (해상 수학 · 위험 등급 판정 순수 함수 + 스토어 위험 판정 패스) |
 
 ---
 
@@ -98,7 +98,7 @@ AISStream 원본  ─── 혼잡 해역 기준 초당 수백 msg ──┐
 - 프론트↔프록시 사이에 `t` 필드로 판별하는 **자체 와이어 프로토콜**을 정의했음 (`pos` / `static` / `snapshot` / `snapshotEnd` / `error`)
 - AIS 센티널 값(속도 102.3 = 미상, 침로 511 = 미상 등)을 **서버에서 `null`로 정규화**해, 프론트가 도메인 예외를 몰라도 되게 했음
 - 여러 클라이언트의 구독 박스를 합집합으로 묶어 상류 재구독은 2초 디바운스 (최대 8박스)
-- **클라이언트 입력은 신뢰하지 않음** — 객체가 아닌 페이로드·범위 밖 좌표는 검증 단계에서 거부하고, 프레임 크기 64KB 상한(`ws` 기본값 100MB 대체)·구독 플러드 무시·30초 ping/pong 하트비트·`ALLOWED_ORIGINS` Origin 허용목록으로 공개 엔드포인트를 방어함. 마지막 안전망으로 `uncaughtException` 핸들러를 두어, 예외 하나가 전체 클라이언트 연결과 캐시를 잃게 만들지 않음
+- **클라이언트 입력은 신뢰하지 않음** — 객체가 아닌 페이로드·범위 밖 좌표는 검증 단계에서 거부하고, 프레임 크기 64KB 상한(`ws` 기본값 100MB 대체)·구독 플러드는 300ms 창마다 최신 1건으로 합침·30초 ping/pong 하트비트·`ALLOWED_ORIGINS` Origin 허용목록으로 공개 엔드포인트를 방어함. 마지막 안전망으로 `uncaughtException` 핸들러를 두어, 예외 하나가 전체 클라이언트 연결과 캐시를 잃게 만들지 않음
 
 **와이어 프로토콜 스펙**
 
@@ -245,7 +245,7 @@ CPA가 임계값 근처에서 몇 미터씩 흔들리면 등급이 매 스캔마
 | 임계값 왕복 (495↔505m) | 10회 반복해도 등급이 한 번도 안 뒤집힘 |
 | 강등 타이머 리셋 | 중간 복귀 시 20초를 새로 셈 |
 
-Vitest 36개 통과 — `npm test`.
+Vitest 42개 통과 — `npm test`.
 
 이렇게 분리한 이유는 **해상 수학을 눈으로 검증할 수 없기 때문**임. 화면에서 배가 그럴듯하게 움직여도 22% 틀린 거리로 경보를 내고 있을 수 있고, 그건 스크린샷으로 안 드러남. 계산부를 UI에서 떼어놓아야 "이 숫자가 맞다"를 증명할 수 있음.
 
@@ -368,7 +368,8 @@ seatrace/
 │   │   ├── useShipStore.ts # Zustand 스토어 + CPA/지오펜스 위험도 계산
 │   │   ├── shipTypes.ts    # 도메인 타입 정의
 │   │   ├── config.ts       # 튜닝 상수 (한 곳에 모아 조정 가능)
-│   │   └── persistence.ts  # localStorage 웜 캐시·설정·함대
+│   │   ├── persistence.ts  # localStorage 웜 캐시·설정·함대
+│   │   └── riskPass.test.ts # 지오펜스 에지·등급 이력 수명 테스트
 │   ├── components/
 │   │   ├── map/            # Leaflet 지도·마커·클러스터·rAF 보간
 │   │   ├── 3d/             # Three.js 3D 뷰
@@ -381,6 +382,7 @@ seatrace/
 │   │   ├── riskGrading.ts       # 위험 등급 판정 (슈미트 트리거 + 강등 유예)
 │   │   ├── maritimeMath.test.ts # 조우 상황 골든 케이스 (Vitest)
 │   │   ├── riskGrading.test.ts  # 플래핑 · 비대칭 전이 테스트
+│   │   ├── alertText.ts         # 알림 번역 · 경과 시간 · 심각도 공용 포맷
 │   │   └── aisTypes.ts          # AIS 선종 코드 분류
 │   └── pages/              # Dashboard, LiveMap, FleetStatus, Analytics, Settings
 └── .env                    # AISSTREAM_API_KEY (git 추적 제외)

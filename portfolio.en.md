@@ -40,7 +40,7 @@ My background is relevant here: I sailed as a deck officer, so I had watched ARP
 | **Backend (proxy)** | Node.js, Express 5, `ws` |
 | **Styling** | Tailwind CSS 3, Lucide React |
 | **i18n** | i18next (Korean · English · Japanese) |
-| **Testing** | Vitest (36 unit tests over the maritime-math and risk-grading pure functions) |
+| **Testing** | Vitest — 42 tests (maritime-math and risk-grading pure functions, plus the store's risk pass) |
 
 ---
 
@@ -117,7 +117,7 @@ This is the part I spent the most time getting right. AIS is not omniscient, and
 - I defined a small wire protocol discriminated by a `t` field (`pos` / `static` / `snapshot` / `snapshotEnd` / `error`).
 - AIS sentinel values (SOG 102.3 = unavailable, heading 511 = unavailable, COG ≥ 360 = unavailable) are **normalized to `null` on the server**, so the client never has to know the domain quirks.
 - Subscription boxes from multiple clients are unioned, and upstream resubscription is debounced by 2 seconds (max 8 boxes).
-- **Client input is treated as hostile**: non-object payloads and out-of-range coordinates are rejected, frames are capped at 64 KB (the `ws` default of 100 MB is an OOM vector), subscription floods are ignored, a 30-second ping/pong heartbeat reaps half-open sockets, and an `ALLOWED_ORIGINS` allowlist can lock the endpoint to the deployed frontend. A last-resort `uncaughtException` handler makes sure one bad frame cannot drop every connected client and the warm cache with it.
+- **Client input is treated as hostile**: non-object payloads and out-of-range coordinates are rejected, frames are capped at 64 KB (the `ws` default of 100 MB is an OOM vector), subscription floods are coalesced to the latest request per 300 ms window, a 30-second ping/pong heartbeat reaps half-open sockets, and an `ALLOWED_ORIGINS` allowlist can lock the endpoint to the deployed frontend. A last-resort `uncaughtException` handler makes sure one bad frame cannot drop every connected client and the warm cache with it.
 
 **Wire protocol spec**
 
@@ -271,7 +271,7 @@ The entire verdict path is isolated as pure functions with no rendering dependen
 | Threshold oscillation (495 ↔ 505 m) | Grade never flips across 10 sweeps |
 | Downgrade timer reset | Closing back in restarts the full 20 s |
 
-36 Vitest tests pass via `npm test`.
+42 Vitest tests pass via `npm test`.
 
 The reason for splitting it out is that **maritime math cannot be verified by eye.** Vessels can glide across the chart perfectly plausibly while the alerts behind them are computed from ranges that are 22% wrong, and no screenshot will ever show that. Separating the computation from the UI is what makes "this number is correct" a provable claim rather than an impression.
 

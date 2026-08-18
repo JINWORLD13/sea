@@ -66,7 +66,7 @@ The central engineering problem was **throttling a stream that arrives at hundre
    - **Suppressing false positives** — the sign of TCPA is checked together with the horizon. **A vessel already past its closest point is safe at 50 m**
    - **Never fabricating a missing value** — when COG *and* heading are both absent (common on Class-B), **0° is not used as a default; the vessel is treated as stationary**, which blocks a fictitious "steaming due north" vector
    - **No alert flapping** — a **Schmitt trigger (enter at 500 m, release at 650 m)** plus a **20-second dwell on downgrades only; upgrades are immediate**. An alert should fire fast and clear slow (the warning grade is judged the same way against CPA 1,500 m / TCPA 12 min)
-   - **Verification** — the verdict path is isolated as **pure functions** with no rendering dependency, and real encounter situations are pinned as **golden cases**. **36 Vitest tests pass**
+   - **Verification** — the verdict path is isolated as **pure functions** with no rendering dependency, and real encounter situations are pinned as **golden cases**. **42 Vitest tests pass**
    - Scans every 2 seconds, O(n) against the selected own-ship
 
 4. **Geofencing**
@@ -96,7 +96,7 @@ The central engineering problem was **throttling a stream that arrives at hundre
 - **Styling**: Tailwind CSS, Lucide React
 - **Data source**: AISStream.io (live global AIS over WebSocket)
 - **i18n**: i18next (Korean, English, Japanese)
-- **Testing**: Vitest — 36 unit tests over the maritime-math and risk-grading pure functions (`npm test`)
+- **Testing**: Vitest — 42 tests over the maritime-math and risk-grading pure functions, plus the store's risk pass (`npm test`)
 
 ## 📂 Project Structure
 
@@ -110,7 +110,8 @@ seatrace/
 │   │   ├── useShipStore.ts # Zustand store + CPA/geofence risk pass
 │   │   ├── shipTypes.ts  # Domain types
 │   │   ├── config.ts     # Tuning constants (all in one place)
-│   │   └── persistence.ts # localStorage warm cache, settings, fleet
+│   │   ├── persistence.ts # localStorage warm cache, settings, fleet
+│   │   └── riskPass.test.ts # Geofence edge & grade-history lifetime tests
 │   ├── components/
 │   │   ├── 3d/           # Three.js / React Three Fiber (Ship, Scene)
 │   │   ├── dashboard/    # ModeSwitcher, StatsBar, Alerts
@@ -121,6 +122,7 @@ seatrace/
 │   ├── utils/
 │   │   ├── maritimeMath.ts      # Maritime math (CPA/TCPA, latLngToXY, cogSogToVelocity)
 │   │   ├── riskGrading.ts       # Risk grading (Schmitt trigger + downgrade dwell)
+│   │   ├── alertText.ts         # Shared alert i18n / age / severity formatting
 │   │   ├── maritimeMath.test.ts # Golden cases per encounter situation
 │   │   └── riskGrading.test.ts  # Flapping and asymmetric-transition tests
 │   ├── constants/        # Translations (i18n)
@@ -194,7 +196,7 @@ All use of the AIS API key is over secure channels only:
 
 - **Server → AISStream**: The proxy sends the API key to AISStream only over **WSS** (`wss://stream.aisstream.io/v0/stream`). The server refuses to start if the AIS URL is not `wss://`.
 - **Browser → Proxy**: The frontend uses **wss://** when the page is loaded over HTTPS (and **ws://** only for local development over HTTP). For production, serve the app over HTTPS so the WebSocket to the proxy uses WSS. The API key is never sent from the browser; it stays on the server.
-- **Untrusted client input**: the proxy validates every client message before touching it — non-object payloads and out-of-range coordinates are rejected, frames are capped at 64 KB (vs the 100 MB `ws` default), subscription floods are ignored, and a 30-second ping/pong heartbeat reaps half-open connections. Set `ALLOWED_ORIGINS` in production to restrict WebSocket/HTTP access to your frontend's origin.
+- **Untrusted client input**: the proxy validates every client message before touching it — non-object payloads and out-of-range coordinates are rejected, frames are capped at 64 KB (vs the 100 MB `ws` default), subscription floods are coalesced to the latest request per 300 ms window, and a 30-second ping/pong heartbeat reaps half-open connections. Set `ALLOWED_ORIGINS` in production to restrict WebSocket/HTTP access to your frontend's origin.
 
 ## 💡 Technical Challenges & Solutions
 
@@ -252,7 +254,7 @@ All use of the AIS API key is over secure channels only:
   - **Suppressing false positives**: by range alone, a vessel that has already passed its closest point still reads as danger. Checking the **sign of TCPA together with the horizon** narrows the verdict to encounters that need action now.
   - **Never fabricating a missing value** (`cpaVelocity`): when COG *and* heading are both absent — common on Class-B transponders — the vessel is treated as stationary rather than defaulting to 0°. The proxy honestly nulls the sentinels (COG 360, heading 511); filling in 0° here would invent a **"steaming due north"** vector and poison the alerts.
   - **No alert flapping** (`riskGrading.ts`): metre-scale jitter around a threshold flips the grade on every scan. A Schmitt trigger separates the enter line (500 m) from the release line (650 m), and a 20-second dwell applies to **downgrades only**. An alert should fire fast and clear slow — the two directions are not symmetric.
-- **Verification**: the whole verdict path is isolated as pure functions with no rendering dependency, and real encounter situations — head-on, crossing, overtaking, stationary target, parallel tracks, already separating — became the golden cases. 36 Vitest tests pass via `npm test`.
+- **Verification**: the whole verdict path is isolated as pure functions with no rendering dependency, and real encounter situations — head-on, crossing, overtaking, stationary target, parallel tracks, already separating — became the golden cases. The store's risk pass is covered too, since the geofence edge and the lifetime of the grading history are exactly where a plausible-looking fix regresses. 42 Vitest tests pass via `npm test`.
   - Why split it out: **maritime math cannot be verified by eye.** The screen can look perfectly plausible while alerts are computed from ranges that are 22% wrong, and no screenshot will show it.
 
 ## ⚠️ Known Limitations
