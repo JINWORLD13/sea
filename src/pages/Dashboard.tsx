@@ -38,11 +38,6 @@ const Scene = lazy(() => import("../components/3d/Scene"));
 const LANGUAGE_CYCLE = ["en", "ko", "ja"] as const;
 
 const Dashboard = () => {
-  // 플랫폼 모드 상태 관리
-  // Manage platform mode state.
-  const [platformMode, setPlatformMode] = useState<
-    "fleet" | "safety" | "marina"
-  >("fleet");
   const shipsMap = useShipSnapshot({ delayMs: 800 });
   const selectedMmsi = useShipStore((state) => state.selectedShipMmsi);
   const regionObj = useShipStore((state) => state.currentRegion);
@@ -50,9 +45,23 @@ const Dashboard = () => {
   const fleetMmsisList = useShipStore((state) => state.fleetMmsis);
   const searchQuery = useShipStore((state) => state.searchQuery);
   const isFleetOnly = useShipStore((state) => state.activeFleetOnly);
+  const isMarinaMode = useShipStore((state) => state.marinaMode);
   const toggleFleetMode = useShipStore((state) => state.setFleetMode);
   const toggleMarinaMode = useShipStore((state) => state.setMarinaMode);
   const speedUnit = useShipStore((state) => state.settings.speedUnit);
+
+  // 운영 모드는 스토어 필터 플래그에서 파생한다. 로컬 state로 복제하면
+  // 라우트 재진입 시 로컬만 "fleet"으로 초기화되고 스토어 필터(예: marina)는
+  // 그대로 남아, UI 표시와 실제 적용 필터가 어긋난다.
+  // The operating mode is DERIVED from the store's filter flags. A local
+  // useState copy desyncs on remount: it resets to "fleet" while the store
+  // keeps whatever filter (e.g. marina) was active, so the highlighted chip
+  // and the actual filtering disagree.
+  const platformMode: "fleet" | "safety" | "marina" = isFleetOnly
+    ? "fleet"
+    : isMarinaMode
+      ? "marina"
+      : "safety";
 
   const translation = useTranslation();
   const { t } = translation;
@@ -64,7 +73,6 @@ const Dashboard = () => {
   // small-craft (<7 kn) filter, safety clears both and highlights the global
   // alert-feed panel.
   const handleSwitchMode = (mode: "fleet" | "safety" | "marina") => {
-    setPlatformMode(mode);
     if (mode === "fleet") {
       toggleFleetMode(true);
       toggleMarinaMode(false);
@@ -102,17 +110,26 @@ const Dashboard = () => {
   const formatSpeedValue = (speedKn: number): string =>
     (speedUnit === "kmh" ? speedKn * 1.852 : speedKn).toFixed(1);
 
-  const allShipsEntries = Object.values(shipsMap);
+  // shipsMap은 스냅샷 커밋 사이 참조가 안정적이므로 파생값을 전부 memoize한다.
+  // 렌더 본문에서 매번 새로 만들면(특히 Object.values) 리플레이 슬라이더
+  // 드래그나 검색 타이핑 등 데이터와 무관한 렌더마다 전체 선박 스캔이 돌고,
+  // 새 배열 참조가 아래 useMemo들의 의존성을 매번 무효화한다.
+  // shipsMap is identity-stable between snapshot commits, so derive everything
+  // via useMemo. Rebuilding these in the render body (Object.values above all)
+  // rescans every ship on renders unrelated to ship data — replay-slider
+  // drags, search keystrokes — and the fresh array identity defeats the
+  // dependent useMemos below.
+  const allShipsEntries = useMemo(() => Object.values(shipsMap), [shipsMap]);
   // 통계에는 실제 선박(kind === "vessel")만 집계한다 (AtoN/기지국 제외).
   // Only true vessels count toward the stats (AtoN / base stations excluded).
-  const shipCountTotal = allShipsEntries.filter(
-    (s) => s.kind === "vessel",
-  ).length;
-  const filteredFleetShips = allShipsEntries.filter((s) => {
-    const isIncluded = fleetMmsisList.includes(s.id);
-    return isIncluded;
-  });
-  const shipCountFleet = filteredFleetShips.length;
+  const shipCountTotal = useMemo(
+    () => allShipsEntries.filter((s) => s.kind === "vessel").length,
+    [allShipsEntries],
+  );
+  const shipCountFleet = useMemo(() => {
+    const fleetSet = new Set(fleetMmsisList);
+    return allShipsEntries.filter((s) => fleetSet.has(s.id)).length;
+  }, [allShipsEntries, fleetMmsisList]);
 
   // 검색어에 맞는 함대 목록만 표시
   // Fleet list filtered by search.
@@ -153,20 +170,31 @@ const Dashboard = () => {
   // 궤적 리플레이: 슬라이더가 선택 선박의 타임스탬프 경로를 스크럽하며
   // 지도에는 고스트 마커만 그린다. 라이브 선박 데이터는 절대 변경하지 않는다.
   // 선택 변경/페이지 이탈 시 고스트를 반드시 정리한다.
+  //
+  // 스크럽 위치는 배열 인덱스가 아니라 그 지점의 타임스탬프로 고정한다.
+  // path는 200점 슬라이딩 윈도우라(buildMergedShip의 slice(-MAX_PATH_POINTS))
+  // 가득 찬 뒤에는 새 보고가 올 때마다 모든 인덱스가 왼쪽으로 밀린다 —
+  // 인덱스를 저장하면 고정된 고스트 옆에서 시각 표시만 조용히 미래로 흘러간다.
   // Track replay: the slider scrubs the selected ship's timestamped path and
   // drives a ghost marker only — the live vessel is NEVER mutated. The ghost is
   // always cleared when the selection changes or the page unmounts.
-  const [replayIndex, setReplayIndex] = useState<number | null>(null);
-  // 선택 선박이 바뀌면 리플레이 인덱스를 초기화한다. React 권장 패턴에 따라
+  //
+  // The scrub position is anchored by the point's TIMESTAMP, not its array
+  // index: the path is a 200-point sliding window (slice(-MAX_PATH_POINTS) in
+  // buildMergedShip), so once full every new report shifts all indices left —
+  // a stored index would silently drift the time label away from the frozen
+  // ghost marker.
+  const [replayTs, setReplayTs] = useState<number | null>(null);
+  // 선택 선박이 바뀌면 리플레이를 초기화한다. React 권장 패턴에 따라
   // effect 안의 setState 대신 렌더 중 이전값 비교로 상태를 조정한다.
-  // Reset the replay index when the selected ship changes, using React's
+  // Reset the replay when the selected ship changes, using React's
   // "adjust state during render" pattern instead of setState inside an effect.
   const [replayTrackedMmsi, setReplayTrackedMmsi] = useState<string | null>(
     selectedMmsi,
   );
   if (replayTrackedMmsi !== selectedMmsi) {
     setReplayTrackedMmsi(selectedMmsi);
-    setReplayIndex(null);
+    setReplayTs(null);
   }
   // 고스트는 외부 스토어(Zustand) 상태이므로 선택 변경/언마운트 시 정리한다.
   // The ghost lives in the external store, so clear it on selection change/unmount.
@@ -176,11 +204,16 @@ const Dashboard = () => {
     };
   }, [selectedMmsi]);
 
-  const replayPath = currentShip?.path ?? [];
-  const clampedReplayIndex =
-    replayIndex === null
-      ? null
-      : Math.min(replayIndex, Math.max(replayPath.length - 1, 0));
+  const replayPath = useMemo(() => currentShip?.path ?? [], [currentShip]);
+  // 타임스탬프로 현재 경로에서 해당 지점을 다시 찾는다. 지점이 윈도우 밖으로
+  // 밀려났으면 가장 오래된 지점으로 수렴한다(그보다 과거는 더 이상 없다).
+  // Re-resolve the anchored timestamp against the current path. If the point
+  // has been evicted from the window, settle on the oldest remaining one.
+  const clampedReplayIndex = useMemo(() => {
+    if (replayTs === null || replayPath.length === 0) return null;
+    const found = replayPath.findIndex((p) => p.ts >= replayTs);
+    return found === -1 ? replayPath.length - 1 : found;
+  }, [replayTs, replayPath]);
   const scrubbedPoint =
     clampedReplayIndex === null ? null : (replayPath[clampedReplayIndex] ?? null);
 
@@ -192,7 +225,7 @@ const Dashboard = () => {
     );
     const point = currentShip.path[index];
     if (!point) return;
-    setReplayIndex(index);
+    setReplayTs(point.ts);
     useShipStore.getState().setReplayGhost({
       mmsi: currentShip.id,
       lat: point.lat,
@@ -202,7 +235,7 @@ const Dashboard = () => {
   };
 
   const handleExitReplay = () => {
-    setReplayIndex(null);
+    setReplayTs(null);
     useShipStore.getState().setReplayGhost(null);
   };
 

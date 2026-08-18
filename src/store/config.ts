@@ -5,6 +5,9 @@ import type { AisStreamStatus, Region } from "./shipTypes";
 export const MAX_TRACKED_SHIPS = 500;
 export const MAX_PATH_POINTS = 200;
 export const MAX_ALERT_FEED = 100;
+// 선박별 경보 목록 상한 — 경계선 지터로 재진입이 반복돼도 무한히 자라지 않는다.
+// Per-ship alert list cap — boundary-jitter re-entries cannot grow it unbounded.
+export const MAX_SHIP_ALERTS = 20;
 // 동일 선박 CPA 위험 피드는 5분에 한 번만 올린다.
 // CPA danger feed entries are deduped per MMSI per 5 minutes.
 export const CPA_FEED_DEDUPE_MS = 5 * 60 * 1000;
@@ -17,12 +20,24 @@ export const SUBSCRIPTION_DEBOUNCE_MS = 400;
 export const VIEWPORT_BUFFER_RATIO = 0.15;
 export const SHIP_STALE_MS = 20 * 60 * 1000;
 export const AIS_FLUSH_INTERVAL_MS = 1000;
-// ShipData 스키마가 바뀌었으므로 캐시 키를 v2로 올린다(구버전 캐시 무시).
-// ShipData shape changed — bump the cache key to v2 (old caches are ignored).
-export const LOCAL_SHIP_CACHE_KEY = "vts:last-known-ais-ships:v2";
+// 프록시가 MMSI를 9자리로 패딩하게 되어 선박 ID 표기가 바뀌었다. 구버전
+// 캐시에는 패딩 전 ID("2320003")가 남아 있어 라이브 스트림의 패딩된
+// ID("002320003")와 같은 선박이 두 항목으로 갈라지므로, 키를 v3로 올려
+// 구버전 캐시를 무시한다.
+// The proxy now zero-pads MMSIs to 9 digits, changing how ship IDs are
+// written. Old caches hold pre-padding IDs ("2320003") that would split one
+// vessel into two entries against the live stream's padded "002320003" — so
+// bump the key to v3 and ignore them.
+export const LOCAL_SHIP_CACHE_KEY = "vts:last-known-ais-ships:v3";
 export const LOCAL_CACHE_TTL_MS = 10 * 60 * 1000;
 export const LOCAL_CACHE_MAX_SHIPS = 500;
 export const LOCAL_CACHE_PERSIST_DELAY_MS = 1500;
+// 수동 캐시 삭제 후 저장을 막는 시간. 설정 화면의 "삭제됨" 안내(4초)보다
+// 길게 잡아, 안내가 떠 있는 동안 캐시가 도로 생기지 않게 한다.
+// How long persisting stays suppressed after a manual cache clear — longer
+// than the Settings "cleared" notice (4s) so the cache cannot silently
+// reappear while that notice is still on screen.
+export const CACHE_CLEAR_SUPPRESS_MS = 5000;
 export const SETTINGS_STORAGE_KEY = "vts:settings:v1";
 export const FLEET_STORAGE_KEY = "vts:fleet:v1";
 // 자동 재접속 백오프: 1초에서 시작해 30초 상한, ±20% 지터.

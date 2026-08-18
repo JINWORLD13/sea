@@ -3,6 +3,7 @@
 import type { RegionBounds, ShipData, ShipKind, ShipPatch } from "./shipTypes";
 import {
   AIS_FLUSH_INTERVAL_MS,
+  CACHE_CLEAR_SUPPRESS_MS,
   LOCAL_CACHE_PERSIST_DELAY_MS,
   MAX_SUBSCRIPTION_AREA,
   RECONNECT_BASE_DELAY_MS,
@@ -13,6 +14,7 @@ import {
   createInitialStreamStatus,
 } from "./config";
 import {
+  clearPersistedShipCache,
   loadLocalShipCache,
   persistLocalShipCache,
   sanitizeEta,
@@ -194,6 +196,20 @@ const flushPendingShipUpdates = (): void => {
   }
 };
 
+// 캐시 삭제 직후 저장을 잠시 막는 시한. 0이면 억제 없음.
+// Deadline until which persisting is suppressed after a manual clear (0 = off).
+let suppressPersistUntil = 0;
+
+// 모든 저장 경로가 억제 창을 거치게 한다 — 지연 저장뿐 아니라 pagehide(삭제
+// 직후 새로고침)와 스트림 종료 경로도 포함해야 삭제가 실제로 유지된다.
+// Every persist path goes through the suppression window: the delayed write,
+// pagehide (a refresh right after clearing), and stream teardown alike —
+// otherwise the clear does not actually stick.
+const persistShipCacheNow = (): void => {
+  if (Date.now() < suppressPersistUntil) return;
+  persistLocalShipCache(useShipStore.getState().ships, activeBounds);
+};
+
 const scheduleLocalCachePersist = (): void => {
   if (pendingCachePersistTimer !== null) {
     clearTimeout(pendingCachePersistTimer);
@@ -201,8 +217,36 @@ const scheduleLocalCachePersist = (): void => {
 
   pendingCachePersistTimer = setTimeout(() => {
     pendingCachePersistTimer = null;
-    persistLocalShipCache(useShipStore.getState().ships, activeBounds);
+    persistShipCacheNow();
   }, LOCAL_CACHE_PERSIST_DELAY_MS);
+};
+
+// 설정의 "캐시 삭제"가 호출한다. localStorage 키만 지우면 라이브 스트림의
+// 1.5초 지연 저장이 몇 초 안에 도로 써넣어 삭제가 조용히 무효화되므로,
+// 예약된 저장을 취소하고 짧은 억제 창을 둔다.
+//
+// 메모리의 ships는 건드리지 않는다. 비우면 스냅샷으로 복원된 선박의
+// inRestrictedZone이 undefined가 되어 제한 구역에 이미 있던 배들이 일제히
+// "구역 진입" 허위 경보를 내고, 200점 항적과 선박별 경보도 함께 사라진다.
+// 설정 화면이 약속하는 것은 "저장된 마지막 위치 삭제"이지 세션 초기화가 아니다.
+// Called by the Settings "clear cache" action. Removing the localStorage keys
+// alone is not enough — the stream's 1.5s delayed persist writes the data
+// back within seconds — so cancel the scheduled persist and hold a short
+// suppression window.
+//
+// The in-memory ships map is deliberately left alone. Wiping it makes every
+// vessel come back from the snapshot with inRestrictedZone undefined, so each
+// one already sitting inside the restricted zone re-fires a false "entered
+// zone" alert, and every 200-point track and per-ship alert list is lost.
+// What Settings promises is removing the stored last-known positions, not
+// resetting the live session.
+export const clearLocalShipCache = (): void => {
+  if (pendingCachePersistTimer !== null) {
+    clearTimeout(pendingCachePersistTimer);
+    pendingCachePersistTimer = null;
+  }
+  suppressPersistUntil = Date.now() + CACHE_CLEAR_SUPPRESS_MS;
+  clearPersistedShipCache();
 };
 
 // 새로고침/탭 닫기 시점의 최종 저장. React 이펙트 클린업은 페이지 이탈에는
@@ -212,9 +256,7 @@ const scheduleLocalCachePersist = (): void => {
 // exit, so without this hook the warm start rarely has fresh data to load.
 // (pagehide fires for refresh, close, and bfcache entry alike.)
 if (typeof window !== "undefined") {
-  window.addEventListener("pagehide", () => {
-    persistLocalShipCache(useShipStore.getState().ships, activeBounds);
-  });
+  window.addEventListener("pagehide", persistShipCacheNow);
 }
 
 const scheduleFlush = (): void => {
@@ -251,7 +293,7 @@ const finalizeStreamState = (): void => {
   if (updates.length > 0) {
     useShipStore.getState().upsertShips(updates);
   }
-  persistLocalShipCache(useShipStore.getState().ships, activeBounds);
+  persistShipCacheNow();
 };
 
 const markStreamError = (error: string): void => {
@@ -517,11 +559,18 @@ const openAisSocket = (generation: number): void => {
       return;
     }
 
-    // 열림 = 백오프 리셋. 최신 구독 박스를 다시 보낸다(그 사이 viewport가
-    // 바뀌었을 수 있음). 상태는 첫 데이터/snapshotEnd에서 "live"로 승격된다.
-    // Open = reset backoff. Resubscribe the latest box (the viewport may have
-    // moved meanwhile). State is promoted to "live" by data / snapshotEnd.
-    reconnectAttempts = 0;
+    // 최신 구독 박스를 다시 보낸다(그 사이 viewport가 바뀌었을 수 있음).
+    // 백오프 리셋은 여기서 하지 않는다 — 핸드셰이크만 받아주고 바로 닫는
+    // 서버(정원 초과 1013, Origin 거부 1008, 크래시 루프)를 onopen 리셋과
+    // 조합하면 최소 간격(~1초)으로 영원히 두드리게 된다. 리셋은 실제
+    // 데이터가 도착했을 때(onmessage) 수행한다. 상태는 첫 데이터/snapshotEnd에서
+    // "live"로 승격된다.
+    // Resubscribe the latest box (the viewport may have moved meanwhile).
+    // Backoff is NOT reset here: a server that accepts the handshake and
+    // immediately closes (capacity 1013, origin 1008, crash loop) combined
+    // with an onopen reset would be hammered at the minimum delay (~1s)
+    // forever. The reset happens in onmessage once real data arrives. State
+    // is promoted to "live" by data / snapshotEnd.
     useShipStore.setState((state) => ({
       isConnected: true,
       streamStatus: {
@@ -546,7 +595,23 @@ const openAisSocket = (generation: number): void => {
     }
     if (parsed === null || typeof parsed !== "object") return;
 
-    switch ((parsed as { t?: unknown }).t) {
+    const kind = (parsed as { t?: unknown }).t;
+
+    // 백오프 리셋은 데이터 메시지에서만. "error"(예: TOO_MANY_CLIENTS 직후
+    // 종료)까지 리셋하면 거부 루프가 다시 최소 간격으로 돌게 된다.
+    // Reset backoff only on data messages. Resetting on "error" (e.g.
+    // TOO_MANY_CLIENTS right before a close) would put a rejection loop
+    // back at the minimum retry delay.
+    if (
+      kind === "pos" ||
+      kind === "static" ||
+      kind === "snapshot" ||
+      kind === "snapshotEnd"
+    ) {
+      reconnectAttempts = 0;
+    }
+
+    switch (kind) {
       case "pos":
         handlePosMessage(parsed as WirePosMessage);
         break;

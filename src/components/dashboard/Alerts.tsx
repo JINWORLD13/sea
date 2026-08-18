@@ -7,24 +7,17 @@ import { AlertTriangle, Info, XCircle, CheckCircle } from "lucide-react";
 import { useShipStore } from "../../store/useShipStore";
 import type { AlertEntry } from "../../store/useShipStore";
 import { useTranslation } from "react-i18next";
+import {
+  formatAlertAge,
+  formatAlertSeverity,
+  translateAlertMessage,
+} from "../../utils/alertText";
 
 interface AlertsProps {
   // 안전 모드에서 패널을 강조 표시한다.
   // Highlight the panel while safety mode is active.
   highlighted?: boolean;
 }
-
-// 발생 후 경과 시간을 간결하게 표기 ("12s", "3m", "2h", "1d").
-// Compact age since the alert fired ("12s", "3m", "2h", "1d").
-const formatAge = (timestamp: number): string => {
-  const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-};
 
 const Alerts = ({ highlighted = false }: AlertsProps) => {
   // 스토어의 전역 알림 피드 (최신순, 최대 100건).
@@ -48,9 +41,17 @@ const Alerts = ({ highlighted = false }: AlertsProps) => {
     return () => window.clearInterval(timerId);
   }, [alertFeed.length]);
 
-  const highlightClass = highlighted
-    ? " ring-2 ring-red-500/40 shadow-[0_0_25px_rgba(239,68,68,0.15)]"
-    : "";
+  // 경보가 실제로 있을 때만 빨간 링을 두른다. 안전 모드는 아무 필터도 걸지
+  // 않은 기본 상태이기도 해서, 링을 모드에만 걸면 갓 켠 화면의 "이상 없음"
+  // 카드가 상시 경보색을 두르게 된다 — 관제 화면에서 가장 피해야 할 신호다.
+  // Ring only when there are alerts to ring about. Safety mode is also the
+  // resting state (no filters applied), so keying the ring off the mode alone
+  // would wrap the "all clear" card of a freshly loaded console in permanent
+  // alarm red — the exact false signal an alerting console must avoid.
+  const highlightClass =
+    highlighted && alertFeed.length > 0
+      ? " ring-2 ring-red-500/40 shadow-[0_0_25px_rgba(239,68,68,0.15)]"
+      : "";
 
   // 활성 알림이 없을 때의 화면
   // Screen when there are no active alerts.
@@ -77,19 +78,6 @@ const Alerts = ({ highlighted = false }: AlertsProps) => {
     );
     return noAlertContent;
   }
-
-  // 번역 메시지 획득 (피드 메시지는 영어 폴백 텍스트이거나 i18n 키일 수 있음)
-  // Obtain translated message (feed messages are English fallback text, or an
-  // i18n key when one exists).
-  const getTranslatedMessage = (msg: string) => {
-    const exists = i18n.exists(msg);
-    if (exists) {
-      const transMsg = t(msg);
-      return transMsg;
-    } else {
-      return msg;
-    }
-  };
 
   // 알림 종류 라벨 (지오펜스 / CPA).
   // Alert kind label (geofence / CPA).
@@ -162,12 +150,18 @@ const Alerts = ({ highlighted = false }: AlertsProps) => {
                     {alert.shipName}
                   </p>
                   <p className={messageClass}>
-                    {getTranslatedMessage(alert.message)}
+                    {translateAlertMessage(i18n, t, alert.message)}
                   </p>
+                  {/*
+                    경과 시간·심각도도 헤더 종 드롭다운과 같은 i18n 경로를
+                    쓴다 — 같은 알림이 패널마다 다른 언어로 보이면 안 된다.
+                    Age and severity share the header dropdown's i18n path —
+                    the same alert must not localize differently per panel.
+                  */}
                   <p className="text-[11px] text-slate-500 font-mono uppercase">
-                    {getKindLabel(alert.kind)} • {formatAge(alert.timestamp)} •{" "}
+                    {getKindLabel(alert.kind)} • {formatAlertAge(t, alert.timestamp)} •{" "}
                     <span className={severityTextClass}>
-                      {alert.severity.toUpperCase()}
+                      {formatAlertSeverity(t, alert.severity)}
                     </span>
                   </p>
                 </div>

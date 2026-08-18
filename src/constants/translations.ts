@@ -263,6 +263,7 @@ export const translations = {
     alertAgeSeconds: "{{value}}s ago",
     alertAgeMinutes: "{{value}}m ago",
     alertAgeHours: "{{value}}h ago",
+    alertAgeDays: "{{value}}d ago",
 
     // Live connection panel
     aisReconnecting: "Reconnecting to AIS stream...",
@@ -609,6 +610,7 @@ export const translations = {
     alertAgeSeconds: "{{value}}초 전",
     alertAgeMinutes: "{{value}}분 전",
     alertAgeHours: "{{value}}시간 전",
+    alertAgeDays: "{{value}}일 전",
 
     // 실시간 연결 패널
     aisReconnecting: "AIS 스트림에 재연결 중...",
@@ -925,6 +927,7 @@ export const translations = {
     alertAgeSeconds: "{{value}}秒前",
     alertAgeMinutes: "{{value}}分前",
     alertAgeHours: "{{value}}時間前",
+    alertAgeDays: "{{value}}日前",
 
     aisReconnecting: "AISストリームに再接続中...",
     connAgeAgo: "{{age}}前",

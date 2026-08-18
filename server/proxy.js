@@ -32,13 +32,19 @@ const SNAPSHOT_LIMIT = Number(process.env.AIS_SNAPSHOT_LIMIT || 300);
 const SNAPSHOT_CHUNK_SIZE = 100; // WireSnapshot chunk 크기 (계약 고정) / contract-fixed chunk size
 const UPSTREAM_MIN_BACKOFF_MS = Number(process.env.AIS_UPSTREAM_MIN_BACKOFF_MS || 1000);
 const UPSTREAM_MAX_BACKOFF_MS = Number(process.env.AIS_UPSTREAM_MAX_BACKOFF_MS || 30000);
+const UPSTREAM_HANDSHAKE_TIMEOUT_MS = Number(
+  process.env.AIS_UPSTREAM_HANDSHAKE_TIMEOUT_MS || 15000,
+);
 const MAX_CLIENTS = Number(process.env.AIS_MAX_CLIENTS || 20);
 const MAX_UPSTREAM_BOXES = Number(process.env.AIS_MAX_UPSTREAM_BOXES || 8);
 const RESUBSCRIBE_DEBOUNCE_MS = 2000;
-// 클라이언트 구독 메시지 최소 간격. 프런트는 400ms 디바운스로 보내므로
-// 정상 클라이언트는 걸리지 않고, 플러드만 조용히 무시된다.
-// Minimum interval between subscription messages per client. The frontend
-// debounces at 400ms, so only floods are (silently) ignored.
+// 클라이언트 구독 메시지 최소 간격. 간격 안에 도착한 요청은 버리지 않고
+// 마지막 것을 보류했다가 간격이 차면 적용한다(코얼레싱) — 프런트의 onopen
+// 재구독과 400ms 뷰포트 디바운스는 서로 독립적이라 300ms 안에 겹칠 수 있다.
+// Minimum interval between subscription messages per client. Requests inside
+// the window are coalesced (latest wins) rather than dropped — the frontend's
+// onopen resubscribe and its 400ms viewport debounce are independent timers
+// and can land within 300ms of each other.
 const MIN_SUBSCRIBE_INTERVAL_MS = 300;
 // 클라이언트 → 프록시 메시지는 구독 요청뿐이므로 크게 잡을 이유가 없다
 // (ws 기본값 100MB는 OOM 벡터가 된다).
@@ -125,6 +131,8 @@ wss.on("error", (err) => {
  *   boxes: number[][][],
  *   subscribedAt: number,
  *   lastSubscribeAt: number,
+ *   pendingRequest: object | null,
+ *   pendingSubscribeTimer: NodeJS.Timeout | null,
  *   seenMmsis: Map<string, number>,
  *   relayedThisSecond: number,
  *   isAlive: boolean,
@@ -513,8 +521,16 @@ function handleUpstreamMessage(parsed, now) {
 
   const mmsiRaw = parsed?.MetaData?.MMSI;
   if (mmsiRaw === undefined || mmsiRaw === null) return;
-  const mmsi = String(mmsiRaw).trim();
-  if (!mmsi) return;
+  // MetaData.MMSI는 JSON 숫자라 선행 0이 소실된다(002320003 → 2320003).
+  // 9자리로 패딩해야 "00"/"99" 접두사 분류와 /search 문자열 매칭이 성립한다.
+  // MetaData.MMSI is a JSON number, so leading zeros are lost in transit.
+  // Pad back to 9 digits or the "00"/"99" prefix rules and /search matching
+  // can never see base-station / AtoN MMSIs.
+  const mmsiTrimmed = String(mmsiRaw).trim();
+  if (!mmsiTrimmed) return;
+  const mmsi = /^\d{1,9}$/.test(mmsiTrimmed)
+    ? mmsiTrimmed.padStart(9, "0")
+    : mmsiTrimmed;
   const metaName = cleanAisText(parsed?.MetaData?.ShipName);
 
   if (STATIC_MESSAGE_TYPES.has(messageType)) {
@@ -833,11 +849,20 @@ function connectUpstream() {
     return;
   }
 
-  const socket = new WebSocket(AIS_URL);
+  // handshakeTimeout이 없으면 TCP/TLS만 수락하고 101 응답을 주지 않는 피어에
+  // 대해 소켓이 CONNECTING에 영구 고착된다 — close가 안 오니 재연결 경로도,
+  // 워치독(OPEN 전용)도 작동하지 않는다. 타임아웃되면 ws가 error+close를
+  // 발생시켜 백오프 재연결로 이어진다.
+  // Without handshakeTimeout, a peer that accepts TCP/TLS but never answers
+  // the upgrade wedges the socket in CONNECTING forever: no close event, so
+  // neither the reconnect path nor the OPEN-only watchdog can recover. On
+  // timeout ws emits error+close, which feeds the backoff reconnect.
+  const socket = new WebSocket(AIS_URL, {
+    handshakeTimeout: UPSTREAM_HANDSHAKE_TIMEOUT_MS,
+  });
   upstreamSocket = socket;
 
   socket.on("open", () => {
-    upstreamBackoff = UPSTREAM_MIN_BACKOFF_MS;
     upstreamConnectedSince = Date.now();
     lastUpstreamMessageAt = Date.now(); // 정체 시계를 새로 시작 / restart the staleness clock
     pushUpstreamSubscription();
@@ -873,6 +898,14 @@ function connectUpstream() {
       );
       return;
     }
+
+    // 백오프는 실제 데이터가 흘러야 리셋한다. open에서 리셋하면
+    // 수락-즉시-종료를 반복하는 업스트림(과부하/거부 루프)을 최소 간격으로
+    // 영원히 두드리게 된다.
+    // Reset backoff only once real data flows. Resetting in 'open' lets an
+    // accept-then-close upstream (overload / rejection loop) be hammered at
+    // the minimum interval forever.
+    upstreamBackoff = UPSTREAM_MIN_BACKOFF_MS;
 
     handleUpstreamMessage(parsed, now);
   });
@@ -997,6 +1030,8 @@ wss.on("connection", (clientSocket, req) => {
     boxes: [],
     subscribedAt: 0,
     lastSubscribeAt: 0,
+    pendingRequest: null,
+    pendingSubscribeTimer: null,
     seenMmsis: new Map(),
     relayedThisSecond: 0,
     isAlive: true,
@@ -1041,15 +1076,52 @@ wss.on("connection", (clientSocket, req) => {
       return;
     }
 
-    // 구독 처리에는 캐시 전체 스캔 + 스냅샷 전송 비용이 든다. 정상 클라이언트는
-    // 400ms 디바운스로 보내므로, 그보다 촘촘한 요청은 조용히 무시한다.
-    // Each subscribe costs a full cache scan + snapshot send. Legit clients
-    // debounce at 400ms, so anything tighter is silently ignored.
+    // 구독 처리에는 캐시 전체 스캔 + 스냅샷 전송 비용이 든다. 간격 안에 온
+    // 요청은 버리지 않고 보류했다가 간격이 차면 마지막 것을 적용한다.
+    // 조용히 버리면 onopen 재구독 직후(<300ms)에 도착한 뷰포트 구독이
+    // 유실되어, 클라이언트는 새 박스로 필터링하는데 서버는 옛 박스를 계속
+    // 릴레이하는 고착 상태가 된다 (다음 지도 조작까지 복구 불가).
+    // Each subscribe costs a full cache scan + snapshot send. Requests inside
+    // the rate window are coalesced (latest wins), not dropped: a silent drop
+    // loses the viewport subscribe that lands <300ms after the onopen
+    // resubscribe, leaving the client filtering by the new box while the
+    // server keeps relaying the old one until the next map interaction.
     const receivedAt = Date.now();
-    if (receivedAt - client.lastSubscribeAt < MIN_SUBSCRIBE_INTERVAL_MS) {
+    const sinceLast = receivedAt - client.lastSubscribeAt;
+    if (sinceLast < MIN_SUBSCRIBE_INTERVAL_MS) {
+      client.pendingRequest = clientRequest;
+      if (!client.pendingSubscribeTimer) {
+        client.pendingSubscribeTimer = setTimeout(() => {
+          client.pendingSubscribeTimer = null;
+          const pending = client.pendingRequest;
+          client.pendingRequest = null;
+          if (!pending || clientSocket.readyState !== WebSocket.OPEN) return;
+          client.lastSubscribeAt = Date.now();
+          applySubscription(client, pending);
+        }, MIN_SUBSCRIBE_INTERVAL_MS - sinceLast);
+      }
       return;
     }
+    // 보류 중이던 요청은 폐기한다. 타이머는 데드라인에 발화가 "보장"되지
+    // 않는다 — 업스트림 프레임 폭주로 poll 단계가 길어지면 타이머 콜백보다
+    // 늦게 도착한 구독이 먼저 처리되고, 그 뒤 타이머가 옛 박스를 되돌려
+    // 써서 정확히 이 코얼레싱이 막으려던 고착 상태를 다시 만든다.
+    // Discard any queued request: a timer is not guaranteed to run at its
+    // deadline. When a burst of upstream frames stretches the poll phase, a
+    // subscribe that arrives after the deadline is handled first, and the
+    // timer then reapplies the older box — recreating exactly the stuck
+    // state this coalescing exists to prevent. Latest always wins.
+    if (client.pendingSubscribeTimer) {
+      clearTimeout(client.pendingSubscribeTimer);
+      client.pendingSubscribeTimer = null;
+    }
+    client.pendingRequest = null;
     client.lastSubscribeAt = receivedAt;
+    applySubscription(client, clientRequest);
+  });
+
+  function applySubscription(client, clientRequest) {
+    const clientSocket = client.socket;
 
     if (!API_KEY) {
       sendClientError(
@@ -1084,19 +1156,27 @@ wss.on("connection", (clientSocket, req) => {
       cachedSnapshot: snapshotCount,
       cacheSize: aisCache.size,
     });
-  });
+  }
 
-  clientSocket.on("close", () => {
+  function releaseClient(client) {
+    if (client.pendingSubscribeTimer) {
+      clearTimeout(client.pendingSubscribeTimer);
+      client.pendingSubscribeTimer = null;
+    }
+    client.pendingRequest = null;
     clients.delete(client);
     scheduleUpstreamResubscribe();
+  }
+
+  clientSocket.on("close", () => {
+    releaseClient(client);
     console.log("[Proxy] Browser connection closed", {
       remainingClients: clients.size,
     });
   });
 
   clientSocket.on("error", () => {
-    clients.delete(client);
-    scheduleUpstreamResubscribe();
+    releaseClient(client);
   });
 });
 

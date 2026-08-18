@@ -29,6 +29,7 @@ import {
   CPA_FEED_DEDUPE_MS,
   MAX_ALERT_FEED,
   MAX_PATH_POINTS,
+  MAX_SHIP_ALERTS,
   MAX_TRACKED_SHIPS,
   RESTRICTED_ZONE_ALERT_MESSAGE,
   SHIP_STALE_MS,
@@ -172,11 +173,31 @@ const isInRestrictedZone = (
 // Dedupe map for CPA feed entries — last feed timestamp per MMSI.
 const recentCpaFeedByMmsi = new Map<string, number>();
 
+// 지오펜스 경보 중복 방지용 — MMSI별 마지막 진입 경보 시각. 경계선에 걸친
+// 선박은 GPS 지터로 밖↔안 전이를 반복하므로, 에지 트리거만으로는 경보가
+// 재진입마다 쌓인다. CPA 피드와 같은 5분 창을 적용한다.
+// Dedupe map for geofence alerts — last alert timestamp per MMSI. A vessel
+// sitting on the zone boundary re-crosses it constantly through GPS jitter,
+// so edge-triggering alone stacks an alert per re-entry. Same 5-minute
+// window as the CPA feed.
+const recentGeoFeedByMmsi = new Map<string, number>();
+
 // 등급 히스테리시스 상태 — MMSI별로 직전 등급과 강등 대기 시각을 들고 있는다.
 // 판정 자체는 utils/riskGrading의 순수 함수가 하고, 여기서는 상태만 보관한다.
 // Hysteresis state per MMSI. The decision lives in the pure function in
 // utils/riskGrading; this map only carries the history it needs.
 const riskGradeByMmsi = new Map<string, RiskGradeState>();
+// 각 등급 이력을 마지막으로 판정한 시각. 축출은 이 시각 기준으로만 한다.
+// "이번 패스에 없으면 삭제"는 쓸 수 없다: 지도를 확대하면 박스 밖 선박이
+// pruneShipsOutsideBox로 잠시 사라지는데, 그때 이력을 지우면 다시 들어온
+// 선박이 넓힌 해제선(650m)이 아니라 진입선(500m)으로 재판정되어 유지 중이던
+// danger가 warning으로 조용히 떨어진다.
+// When each grade was last evaluated; eviction keys off this alone. A
+// "delete anything not graded this pass" sweep is wrong: zooming in makes
+// pruneShipsOutsideBox drop out-of-box vessels for a tick, and discarding
+// their history then re-judges them against the 500 m enter line instead of
+// the 650 m release line — silently dropping a held danger to warning.
+const riskGradeSeenAt = new Map<string, number>();
 
 // 등급 이력은 "선택한 본선 기준"으로만 의미가 있다. 본선이 바뀌면 이전 기준의
 // 이력이 남아 새 본선의 첫 판정을 오염시키므로 통째로 버린다.
@@ -230,23 +251,24 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
   // Discard grading history when the own-ship reference changes.
   if (gradeBaselineMmsi !== selectedId) {
     riskGradeByMmsi.clear();
+    riskGradeSeenAt.clear();
     gradeBaselineMmsi = selectedId;
   }
 
   let nextShips = state.ships;
   let changed = false;
   const feedAdditions: AlertEntry[] = [];
-  // 이번 패스에서 실제로 판정한 MMSI. 여기 없는 항목은 화면/추적에서 사라진
-  // 선박이므로 등급 이력도 함께 버려 맵이 무한히 자라지 않게 한다.
-  // MMSIs graded in this pass; anything missing has left tracking, so its
-  // history is evicted to keep the map bounded.
-  const gradedThisPass = new Set<string>();
 
   // 중복 방지 맵이 계속 자라지 않도록 오래된 항목을 주기적으로 정리한다.
-  // Keep the dedupe map bounded by evicting entries past the window.
+  // Keep the dedupe maps bounded by evicting entries past the window.
   if (recentCpaFeedByMmsi.size > 256) {
     for (const [mmsi, at] of recentCpaFeedByMmsi) {
       if (now - at >= CPA_FEED_DEDUPE_MS) recentCpaFeedByMmsi.delete(mmsi);
+    }
+  }
+  if (recentGeoFeedByMmsi.size > 256) {
+    for (const [mmsi, at] of recentGeoFeedByMmsi) {
+      if (now - at >= CPA_FEED_DEDUPE_MS) recentGeoFeedByMmsi.delete(mmsi);
     }
   }
 
@@ -260,8 +282,17 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
     let nextAlerts = ship.alerts;
 
     // 제한 구역 지오펜스: 모든 선박에 대해 "밖 → 안" 진입 에지에서만 발생.
+    // 선박별 경보는 에지마다 항상 기록하되 상한(MAX_SHIP_ALERTS)으로 자르고,
+    // 전역 피드만 5분 디듀프한다 — CPA 경로와 같은 규칙이다. 디듀프로 에지
+    // 자체를 건너뛰면 아래에서 inRestrictedZone이 true로 갱신되는 탓에 그
+    // 진입은 영영 기록되지 않는다(체류하는 내내 에지가 다시 오지 않는다).
     // Restricted-zone geofence: edge-triggered on the outside→inside
-    // transition, for every vessel regardless of selection.
+    // transition, for every vessel regardless of selection. The per-ship
+    // alert is always recorded (capped by MAX_SHIP_ALERTS) and only the
+    // global feed is deduped on the 5-minute window — the same rule the CPA
+    // path uses. Skipping the whole edge on dedupe would lose the entry for
+    // good: inRestrictedZone is set to true below regardless, so no further
+    // edge arrives for the rest of the vessel's stay inside the zone.
     if (inRestricted && ship.inRestrictedZone !== true) {
       const alertId = `geo_${id}_${now}`;
       nextAlerts = [
@@ -269,19 +300,24 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
         {
           id: alertId,
           message: RESTRICTED_ZONE_ALERT_MESSAGE,
-          severity: "medium",
+          severity: "medium" as const,
           timestamp: now,
         },
-      ];
-      feedAdditions.push({
-        id: alertId,
-        mmsi: id,
-        shipName: ship.name,
-        message: RESTRICTED_ZONE_ALERT_MESSAGE,
-        severity: "medium",
-        timestamp: now,
-        kind: "geofence",
-      });
+      ].slice(-MAX_SHIP_ALERTS);
+
+      const lastGeoAt = recentGeoFeedByMmsi.get(id) ?? 0;
+      if (now - lastGeoAt >= CPA_FEED_DEDUPE_MS) {
+        recentGeoFeedByMmsi.set(id, now);
+        feedAdditions.push({
+          id: alertId,
+          mmsi: id,
+          shipName: ship.name,
+          message: RESTRICTED_ZONE_ALERT_MESSAGE,
+          severity: "medium",
+          timestamp: now,
+          kind: "geofence",
+        });
+      }
     }
 
     if (
@@ -304,7 +340,17 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
       const prevGrade = riskGradeByMmsi.get(id) ?? INITIAL_GRADE_STATE;
       const grade = gradeRisk(prevGrade, cpa.cpaDistance, cpa.tcpa, now);
       if (grade !== prevGrade) riskGradeByMmsi.set(id, grade);
-      gradedThisPass.add(id);
+      // safe로 되돌아온 이력은 들고 있을 이유가 없다 — 다음 판정의 시작점이
+      // INITIAL_GRADE_STATE와 같으므로 즉시 버려 맵을 최소로 유지한다.
+      // A grade back at safe carries no information — it is identical to the
+      // INITIAL_GRADE_STATE the next pass would fall back to — so drop it
+      // right away and keep the map as small as possible.
+      if (grade.severity === "safe" && grade.pendingSince === null) {
+        riskGradeByMmsi.delete(id);
+        riskGradeSeenAt.delete(id);
+      } else {
+        riskGradeSeenAt.set(id, now);
+      }
       const severity = grade.severity;
       const becameDanger =
         severity === "danger" && prevGrade.severity !== "danger";
@@ -358,9 +404,18 @@ function computeRiskUpdates(state: ShipStore): Partial<ShipStore> {
     }
   }
 
-  if (riskGradeByMmsi.size > gradedThisPass.size) {
-    for (const mmsi of riskGradeByMmsi.keys()) {
-      if (!gradedThisPass.has(mmsi)) riskGradeByMmsi.delete(mmsi);
+  // 이력은 선박 레코드와 같은 수명(SHIP_STALE_MS)으로 만료시킨다. 잠시
+  // 박스 밖으로 나간 선박은 이력을 유지해 히스테리시스가 이어지고, 정말
+  // 떠난 선박은 만료되어 재등장 시 safe에서 새로 판정된다 — 맵도 함께
+  // 유계로 유지된다.
+  // Expire history on the same clock as the ship records themselves
+  // (SHIP_STALE_MS). A vessel that merely left the box keeps its hysteresis,
+  // while one that truly departed expires and is re-judged from safe when it
+  // returns — which also keeps the map bounded.
+  for (const [mmsi, seenAt] of riskGradeSeenAt) {
+    if (now - seenAt >= SHIP_STALE_MS) {
+      riskGradeSeenAt.delete(mmsi);
+      riskGradeByMmsi.delete(mmsi);
     }
   }
 

@@ -20,6 +20,10 @@ import {
   categoryFromTypeCode,
   getCategoryLabelKey,
 } from "../../utils/aisTypes";
+import {
+  formatAlertAge,
+  translateAlertMessage,
+} from "../../utils/alertText";
 import { useShipSnapshot } from "../../hooks/useShipSnapshot";
 
 const SEARCH_DEBOUNCE_MS: number = 300;
@@ -117,23 +121,8 @@ const getStreamStateLabel = (
   }
 };
 
-// 알림 경과 시간 포맷 (Format elapsed time for an alert entry)
-const formatAlertAge = (t: TFunction, timestamp: number): string => {
-  const elapsedSec = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-  if (elapsedSec < 5) return t("alertAgeJustNow", "just now");
-  if (elapsedSec < 60) {
-    return t("alertAgeSeconds", "{{value}}s ago", { value: elapsedSec });
-  }
-  const minutes = Math.floor(elapsedSec / 60);
-  if (minutes < 60) {
-    return t("alertAgeMinutes", "{{value}}m ago", { value: minutes });
-  }
-  const hours = Math.floor(minutes / 60);
-  return t("alertAgeHours", "{{value}}h ago", { value: hours });
-};
-
 const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const searchQuery: string = useShipStore((state) => state.searchQuery);
   const setSearchQuery = useShipStore((state) => state.setSearchQuery);
   const selectShip = useShipStore((state) => state.selectShip);
@@ -544,7 +533,7 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
                             </span>
                           </div>
                           <p className="text-[11px] text-slate-400 leading-snug mt-0.5">
-                            {entry.message}
+                            {translateAlertMessage(i18n, t, entry.message)}
                           </p>
                           <p className="text-[10px] text-slate-600 font-mono mt-1">
                             {formatAlertAge(t, entry.timestamp)}

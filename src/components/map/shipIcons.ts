@@ -117,10 +117,18 @@ export const getShipIcon = (
   isSelected: boolean,
 ): DivIcon => {
   const appliedRotation = visual.shape === "triangle" ? rotation : 0;
+  // glow도 키에 포함해야 한다: danger 채움색(#f87171)은 탱커 선종색과,
+  // warning(#fbbf24)은 고속선 선종색과 정확히 같아서, glow를 빼면 위험
+  // 하이라이트와 선종 아이콘이 같은 키로 뭉개져 캐시된 쪽이 잘못 재사용된다.
+  // The glow must be part of the key: the danger fill (#f87171) is byte-equal
+  // to the tanker category color and warning (#fbbf24) to high-speed craft,
+  // so without it the risk highlight and the plain category icon collide on
+  // the same key and whichever was cached first is wrongly reused.
   const cacheKey = [
     visual.shape,
     appliedRotation,
     visual.fill,
+    visual.glow,
     isSelected ? 1 : 0,
     visual.restricted ? 1 : 0,
   ].join("|");

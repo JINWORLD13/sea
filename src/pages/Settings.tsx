@@ -20,17 +20,7 @@ import {
 import { useTranslation } from "react-i18next";
 import { getProxyHttpUrl, useShipStore } from "../store/useShipStore";
 import type { AppSettings } from "../store/useShipStore";
-
-// 삭제 대상 로컬 캐시 키: 선박 위치 캐시만 지운다.
-// 함대 목록("vts:fleet:v1")과 설정("vts:settings:v1")은 절대 건드리지 않는다.
-// Local cache keys eligible for clearing: ONLY the last-known vessel cache.
-// The fleet list ("vts:fleet:v1") and settings ("vts:settings:v1") are never touched.
-const SHIP_CACHE_KEYS: readonly string[] = [
-  "vts:last-known-ais-ships:v2",
-  // 마이그레이션 잔여물인 구버전 키도 함께 정리한다.
-  // Also sweep the legacy v1 key left over from the cache migration.
-  "vts:last-known-ais-ships:v1",
-];
+import { clearLocalShipCache } from "../store/aisStream";
 
 const HEALTH_POLL_INTERVAL_MS = 15_000;
 const CLEARED_NOTICE_MS = 4_000;
@@ -226,14 +216,16 @@ const Settings: FC = (): ReactElement => {
   const clearedTimerRef = useRef<number | null>(null);
 
   const handleClearShipCache = useCallback((): void => {
-    try {
-      for (const key of SHIP_CACHE_KEYS) {
-        window.localStorage.removeItem(key);
-      }
-    } catch {
-      // 스토리지 접근 불가(프라이빗 모드 등)면 조용히 무시한다.
-      // Storage unavailable (private mode etc.) — ignore silently.
-    }
+    // 키 삭제만으로는 라이브 스트림의 지연 저장이 캐시를 도로 채우므로,
+    // 스트림 계층이 저장 타이머까지 취소하고 잠시 저장을 억제한다.
+    // 화면에 떠 있는 라이브 선박·항적은 그대로 둔다(저장된 데이터만 삭제).
+    // 함대 목록("vts:fleet:v1")과 설정("vts:settings:v1")도 건드리지 않는다.
+    // Removing the keys alone lets the stream's delayed persist refill the
+    // cache, so the stream layer also cancels the persist timer and holds a
+    // short suppression window. Live vessels and tracks on screen are left
+    // untouched — only the stored data goes. The fleet list
+    // ("vts:fleet:v1") and settings ("vts:settings:v1") are never touched.
+    clearLocalShipCache();
     setConfirmingClear(false);
     setCacheCleared(true);
     if (clearedTimerRef.current !== null) {

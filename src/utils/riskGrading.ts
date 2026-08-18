@@ -92,15 +92,22 @@ export const rawSeverity = (
 /**
  * 히스테리시스를 적용한 등급 판정.
  *
- * 1. 이미 경보 중이면 넓힌 임계값(`releaseRatio`)으로 다시 판정한다 — 진입선과
- *    해제선이 달라지므로 CPA가 499↔501 m를 오갈 때 경보가 켜졌다 꺼지지 않는다.
+ * 1. 승격(더 높은 등급 진입)은 항상 기본 임계값으로 판정한다. 유지/해제만
+ *    넓힌 임계값(`releaseRatio`)으로 판정한다 — 진입선과 해제선이 달라지므로
+ *    CPA가 499↔501 m를 오갈 때 경보가 켜졌다 꺼지지 않는다. 넓힌 값을
+ *    승격에도 쓰면 warning 중인 선박이 650 m(문서상 500 m)에서 danger로
+ *    승격되고, danger 진입선과 해제선이 겹쳐 경계에서 플래핑한다.
  * 2. 승격은 즉시, 강등은 `downgradeDwellMs` 동안 연속 유지될 때만 반영한다.
  *
  * 순수 함수다 — 현재 시각을 인자로 받으므로 테스트에서 시간을 직접 전진시킬 수 있다.
  *
- * Grade with hysteresis: an active alert is re-judged against the widened
- * threshold, upgrades apply immediately, and downgrades need a sustained dwell.
- * Pure function — `now` is injected so tests can advance time by hand.
+ * Grade with hysteresis. Upgrades are always judged against the base
+ * thresholds; only holding/releasing the current grade uses the widened
+ * thresholds (using the widened value for upgrades too would promote a
+ * warning-grade vessel to danger at 650 m instead of the documented 500 m,
+ * and would make the danger enter/release lines coincide). Upgrades apply
+ * immediately; downgrades need a sustained dwell. Pure function — `now` is
+ * injected so tests can advance time by hand.
  */
 export const gradeRisk = (
   prev: RiskGradeState,
@@ -109,15 +116,16 @@ export const gradeRisk = (
   now: number,
   th: RiskThresholds = DEFAULT_RISK_THRESHOLDS,
 ): RiskGradeState => {
-  const widen = prev.severity === "safe" ? 1 : th.releaseRatio;
-  const next = rawSeverity(cpaDistanceM, tcpaS, th, widen);
-  const nextRank = severityRank[next];
   const heldRank = severityRank[prev.severity];
 
-  if (nextRank > heldRank) {
-    return { severity: next, pendingSince: null };
+  const enter = rawSeverity(cpaDistanceM, tcpaS, th);
+  if (severityRank[enter] > heldRank) {
+    return { severity: enter, pendingSince: null };
   }
-  if (nextRank === heldRank) {
+
+  const widen = prev.severity === "safe" ? 1 : th.releaseRatio;
+  const hold = rawSeverity(cpaDistanceM, tcpaS, th, widen);
+  if (severityRank[hold] >= heldRank) {
     return prev.pendingSince === null
       ? prev
       : { severity: prev.severity, pendingSince: null };
@@ -125,7 +133,7 @@ export const gradeRisk = (
 
   const since = prev.pendingSince ?? now;
   if (now - since >= th.downgradeDwellMs) {
-    return { severity: next, pendingSince: null };
+    return { severity: hold, pendingSince: null };
   }
   return { severity: prev.severity, pendingSince: since };
 };

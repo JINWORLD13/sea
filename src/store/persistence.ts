@@ -251,6 +251,31 @@ export function loadLocalShipCache(bounds: RegionBounds): Record<string, ShipDat
   }
 }
 
+// 마이그레이션 이전 캐시 키들 — 삭제 시 함께 정리한다.
+// Pre-migration cache keys, swept together on clearing.
+const LEGACY_SHIP_CACHE_KEYS: readonly string[] = [
+  "vts:last-known-ais-ships:v2",
+  "vts:last-known-ais-ships:v1",
+];
+
+// 영속화된 선박 캐시(현행 v2 + 구버전 v1)를 삭제한다. 함대/설정 키는
+// 건드리지 않는다. 메모리 상태와의 조율은 aisStream.clearLocalShipCache가 한다.
+// Remove the persisted vessel cache (current v2 + legacy v1). Fleet and
+// settings keys are never touched. Coordination with in-memory state lives
+// in aisStream.clearLocalShipCache.
+export function clearPersistedShipCache(): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    window.localStorage.removeItem(LOCAL_SHIP_CACHE_KEY);
+    for (const key of LEGACY_SHIP_CACHE_KEYS) {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // 스토리지 접근 불가(프라이빗 모드 등)면 조용히 무시한다.
+    // Storage unavailable (private mode etc.) — ignore silently.
+  }
+}
+
 export function persistLocalShipCache(
   ships: Record<string, ShipData>,
   bounds: RegionBounds | null,

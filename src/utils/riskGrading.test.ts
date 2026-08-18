@@ -68,6 +68,32 @@ describe("gradeRisk — 슈미트 트리거 / hysteresis", () => {
   });
 });
 
+describe("gradeRisk — 승격은 기본 임계값으로만 / upgrades use base thresholds", () => {
+  it("warning 중이라도 danger 승격은 500 m 진입선에서만 일어난다", () => {
+    // 넓힌 임계값(650 m)을 승격에도 쓰면 warning 선박이 550 m에서
+    // danger로 올라가 버린다 — 문서상 진입선은 500 m다.
+    const w: RiskGradeState = { severity: "warning", pendingSince: null };
+    expect(gradeRisk(w, 550, 120, 0).severity).toBe("warning");
+    expect(gradeRisk(w, 480, 120, 0).severity).toBe("danger");
+  });
+
+  it("danger 진입선(500 m)과 해제선(650 m)은 겹치지 않는다", () => {
+    // 같은 640 m가 이전 등급에 따라 다르게 판정되어야 경계에서 플래핑하지 않는다.
+    const w: RiskGradeState = { severity: "warning", pendingSince: null };
+    expect(gradeRisk(w, 640, 120, 0).severity).toBe("warning"); // 진입선 밖
+
+    const d: RiskGradeState = { severity: "danger", pendingSince: null };
+    expect(gradeRisk(d, 640, 120, 0).severity).toBe("danger"); // 해제선 안
+  });
+
+  it("warning 유지 판정에는 넓힌 임계값이 적용된다 (1500 → 1950 m)", () => {
+    const w: RiskGradeState = { severity: "warning", pendingSince: null };
+    const held = gradeRisk(w, 1_800, 400, 0);
+    expect(held.severity).toBe("warning");
+    expect(held.pendingSince).toBeNull();
+  });
+});
+
 describe("gradeRisk — 승격은 즉시, 강등은 유예 / asymmetric transitions", () => {
   it("safe → danger는 유예 없이 즉시 반영된다", () => {
     const s = gradeRisk(INITIAL_GRADE_STATE, 200, 60, 0);
