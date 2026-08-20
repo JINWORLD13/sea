@@ -78,7 +78,7 @@ The central engineering problem was **throttling a stream that arrives at hundre
 
 6. **High-Performance State Management**
    - Zustand with selector-based subscriptions and copy-on-write updates
-   - 1s batched flushes; per-view snapshot throttling (800–1200ms) with `startTransition`
+   - 1s batched flushes; per-view snapshot throttling (700–1200ms) with `startTransition`
    - Viewport culling → 250-marker cap → pixel-grid clustering below zoom 12
    - Marker motion interpolated by a single shared rAF ticker, with zero React re-renders
 
@@ -207,7 +207,7 @@ All use of the AIS API key is over secure channels only:
   - **Proxy (`server/proxy.js`)**: enforces a subscription box area cap (≤ 0.25 sq deg), a per-client budget of 180 msg/s and 600 tracked MMSIs, and serves an instant snapshot from a 5,000-entry server cache in 100-ship chunks.
   - **Stream (`aisStream.ts`)**: coalesces reports into a `Map` keyed by MMSI and flushes once per second, so repeated reports for the same vessel collapse into one store write.
   - **Store (`useShipStore.ts`)**: caps tracking at 500 vessels, prunes anything unheard for 20 minutes, and computes the CPA/geofence pass in a single copy-on-write sweep — one clone and one subscriber notification instead of one per vessel.
-  - **Render (`useShipSnapshot.ts` + `map/`)**: throttles each view to its own 800–1200ms snapshot inside `startTransition`, culls off-screen vessels, caps rendered markers at 250, and clusters on a 64px pixel grid below zoom 12.
+  - **Render (`useShipSnapshot.ts` + `map/`)**: throttles each view to its own 700–1200ms snapshot inside `startTransition`, culls off-screen vessels, caps rendered markers at 250, and clusters on a 64px pixel grid below zoom 12.
 
 ### 2. Smooth Marker Motion Without Re-rendering
 

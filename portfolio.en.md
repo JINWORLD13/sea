@@ -18,7 +18,7 @@ The core engineering problem was **throttling a live AIS WebSocket stream that a
 | **Project** | SEATRACE — Real-time AIS Vessel Tracking |
 | **Period / team** | Feb 2026 – Mar 2026 · Solo (design, frontend, proxy server, maritime algorithms) |
 | **Data source** | [AISStream.io](https://aisstream.io) — live global AIS over WebSocket (**not mock data**) |
-| **Size** | ~9,000 lines TypeScript/TSX + ~1,100 lines Node proxy |
+| **Size** | ~9,500 lines TypeScript/TSX + ~1,300 lines Node proxy |
 | **Screens** | Dashboard · Live Map · Fleet Status · Analytics · Settings |
 
 ### Why I built it
@@ -75,7 +75,7 @@ Raw AISStream  ─── hundreds of msg/s in a busy strait ──┐
                                                         │
  ┌──────────────────────────────────────────────────────▼─────────────────┐
  │ ④ Render layer (useShipSnapshot.ts + components/map/)                  │
- │   · Per-view 800–1,200 ms snapshot throttle inside startTransition     │
+ │   · Per-view 700–1,200 ms snapshot throttle inside startTransition     │
  │   · Viewport culling → 250-marker render cap (nearest-to-focus first)  │
  │   · Pixel-grid clustering (64 px) below zoom 12                        │
  │   · Marker motion via one shared rAF ticker → zero React re-renders    │
@@ -145,7 +145,7 @@ The split between `pos` and `static` follows **rate of change**. Position and sp
 
 - 400 ms debounce after `moveend` / `zoomend`, so a drag does not fire dozens of resubscribes.
 - The subscription box is the viewport plus 15% padding, so edges do not go blank while panning.
-- If the padded area exceeds the proxy's limit, it falls back to the region box and clusters on the client.
+- If the padded area exceeds the client-side cap (0.22 sq deg — a safety margin under the proxy's 0.25 limit), it falls back to the region box and clusters on the client.
 - **The socket is never torn down** — only the subscription message is re-sent, so there is no reconnect delay.
 - Vessels outside the new box are pruned from the store immediately (the selected vessel is exempt).
 

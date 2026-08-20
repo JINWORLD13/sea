@@ -21,7 +21,7 @@
 | **데이터 소스** | 외부 API [AISStream.io](https://aisstream.io) — 전 세계 실시간 AIS WebSocket (**모의 데이터 아님**) |
 | **라이브 데모** | [vts-tau-navy.vercel.app](https://vts-tau-navy.vercel.app) — 프록시가 무료 서버라 첫 접속은 느릴 수 있음 |
 | **GitHub** | [github.com/JINWORLD13/sea](https://github.com/JINWORLD13/sea) |
-| **규모** | TypeScript/TSX 약 9,000줄 + Node 프록시 약 1,100줄 |
+| **규모** | TypeScript/TSX 약 9,500줄 + Node 프록시 약 1,300줄 |
 | **주요 화면** | Dashboard · Live Map · Fleet Status · Analytics · Settings |
 
 ### 왜 만들었나
@@ -75,7 +75,7 @@ AISStream 원본  ─── 혼잡 해역 기준 초당 수백 msg ──┐
                                                    │
  ┌─────────────────────────────────────────────────▼──────────────────────┐
  │ ④ 렌더 계층 (src/hooks/useShipSnapshot.ts + components/map/)            │
- │   · 화면별 800~1,200ms 스냅샷 스로틀 + startTransition (입력 우선)      │
+ │   · 화면별 700~1,200ms 스냅샷 스로틀 + startTransition (입력 우선)      │
  │   · 화면(viewport) 밖 선박 제외 → 렌더 250개 상한 (중심 근접 우선)      │
  │   · 줌 12 미만은 64px 픽셀 격자 클러스터링                              │
  │   · 마커 이동은 공유 rAF 티커로 보간 → React 리렌더 0회                 │
@@ -122,11 +122,11 @@ AISStream 원본  ─── 혼잡 해역 기준 초당 수백 msg ──┐
 
 **문제** — 전 세계를 한 번에 구독하면 초당 수천 건이 들어와 브라우저가 멈춤. 그렇다고 고정된 해역만 구독하면 사용자가 지도를 옮겼을 때 빈 화면이 됨.
 
-**해결** — 뷰포트 기반 동적 재구독을 구현했음 ([aisStream.ts:593](src/store/aisStream.ts:593)).
+**해결** — 뷰포트 기반 동적 재구독을 구현했음 ([aisStream.ts:761](src/store/aisStream.ts:761)).
 
 - 지도 `moveend` / `zoomend` 후 **400ms 디바운스** → 드래그 중 수십 번 재구독하는 것 방지
 - 화면 박스에 **15% 패딩**을 더해 구독 → 패닝 시 가장자리가 비지 않음
-- 패딩 후 면적이 프록시 제한(0.25°²)을 넘으면 **현재 해역 박스로 폴백**하고 클라이언트에서 클러스터링
+- 패딩 후 면적이 클라이언트 상한(0.22°² — 프록시 제한 0.25°²보다 여유를 둔 값)을 넘으면 **현재 해역 박스로 폴백**하고 클라이언트에서 클러스터링
 - **소켓을 끊지 않고** 구독 메시지만 다시 보냄 → 재연결 지연 없음
 - 새 박스 밖 선박은 즉시 스토어에서 정리 (선택된 선박은 예외로 계속 추적)
 
@@ -136,7 +136,7 @@ AISStream 원본  ─── 혼잡 해역 기준 초당 수백 msg ──┐
 
 **문제** — 개발 모드에서 React가 이펙트를 두 번 실행하면서, 정리된 줄 알았던 이전 소켓의 `onmessage` / 재접속 타이머가 살아남아 데이터가 중복 반영되고 재접속이 폭주했음.
 
-**해결** — **세대(generation) 카운터** 패턴을 도입했음 ([aisStream.ts:36](src/store/aisStream.ts:36)).
+**해결** — **세대(generation) 카운터** 패턴을 도입했음 ([aisStream.ts:42](src/store/aisStream.ts:42)).
 
 ```ts
 let streamGeneration = 0;
@@ -156,7 +156,7 @@ socket.onmessage = (event) => {
 
 이전 세대에 속한 모든 콜백이 **자동으로 no-op이 됨.** `onclose`에서도 세대가 일치하는 종료만 "예기치 않은 종료"로 판단해 재접속하므로, 의도적 종료와 사고를 구분할 수 있음.
 
-같은 원리로 `stopAisStream`에서는 **순서**가 중요했음 — `activeBounds`를 `null`로 만들기 *전에* 남은 배치를 flush하고 캐시를 저장해야 함. 캐시 저장이 bounds를 기준으로 필터링하기 때문임 ([aisStream.ts:737](src/store/aisStream.ts:737)).
+같은 원리로 `stopAisStream`에서는 **순서**가 중요했음 — `activeBounds`를 `null`로 만들기 *전에* 남은 배치를 flush하고 캐시를 저장해야 함. 캐시 저장이 bounds를 기준으로 필터링하기 때문임 ([aisStream.ts:813](src/store/aisStream.ts:813)).
 
 **재접속** — 예기치 않은 종료 시 1초에서 시작해 30초 상한까지 지수 백오프하며, ±20% 지터를 넣어 동시 재접속 몰림을 방지함. 재접속 중에도 **기존 선박 목록은 유지**해 화면이 비지 않음.
 
@@ -170,7 +170,7 @@ socket.onmessage = (event) => {
 
 **(1) 질문을 다시 정의해 스캔을 O(n)으로 만들었음.** 관제 화면이 실제로 답해야 하는 질문은 "모든 배 사이의 위험"이 아니라 **"선택한 본선 기준의 위험"** 임 — ARPA가 CPA를 계산하는 방식 그대로임. 그러면 스캔은 선택 선박 대 나머지 전부, 즉 O(n)이 됨.
 
-**(2) 단일 패스 + copy-on-write로 재작성했음** ([useShipStore.ts:181](src/store/useShipStore.ts:181)).
+**(2) 단일 패스 + copy-on-write로 재작성했음** ([useShipStore.ts:232](src/store/useShipStore.ts:232)).
 
 ```ts
 let nextShips = state.ships;   // 처음엔 원본 참조 그대로
@@ -284,7 +284,7 @@ Vitest 42개 통과 — `npm test`.
 
 **해결**
 
-- 정적 정보가 먼저 오면 `pendingStaticByMmsi`에 최대 300건까지 보류했다가, 위치가 도착하는 순간 병합함 ([aisStream.ts:350](src/store/aisStream.ts:350))
+- 정적 정보가 먼저 오면 `pendingStaticByMmsi`에 최대 300건까지 보류했다가, 위치가 도착하는 순간 병합함 ([aisStream.ts:404](src/store/aisStream.ts:404))
 - 병합 규칙을 명확히 분리했음 — **정적 필드는 정보를 "추가"만 하고 `null`로 지우지 않음.** 보고 종류에 따라 필드가 정상적으로 누락되기 때문임. 반면 침로 · 방위 같은 동적 필드는 명시적 `null`이 오면 덮어씀 (낡은 값이 화면에 남지 않도록)
 - 위치 없는 정적 정보만으로는 **선박 객체를 만들지 않음** — 좌표 (0, 0)에 유령 선박이 뜨는 것을 방지
 
