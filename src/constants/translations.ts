@@ -32,6 +32,7 @@ export const translations = {
     share: "Share",
     export: "Export",
     shareLinkCopied: "Public Share Link copied!",
+    shareLinkManualCopy: "Copy this link:",
 
     // Dashboard panel
     fleetDeployment: "Fleet Deployment",
@@ -384,6 +385,7 @@ export const translations = {
     share: "공유",
     export: "내보내기",
     shareLinkCopied: "공개 공유 링크가 복사되었습니다!",
+    shareLinkManualCopy: "아래 링크를 복사하세요:",
 
     // 대시보드 패널
     fleetDeployment: "함대 배치",
@@ -725,6 +727,7 @@ export const translations = {
     share: "共有",
     export: "エクスポート",
     shareLinkCopied: "公開共有リンクをコピーしました！",
+    shareLinkManualCopy: "このリンクをコピーしてください:",
 
     fleetDeployment: "船隊配置",
     searchLabel: "検索",

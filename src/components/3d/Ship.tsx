@@ -29,6 +29,9 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
   // value and the oscillation is layered on top each frame (no drift).
   const basePitchRef = useRef(0);
   const baseRollRef = useRef(0);
+  // 현재 표시 중인 선수방위(rad). null이면 아직 첫 값을 못 받은 상태.
+  // Yaw currently rendered (radians); null until the first value arrives.
+  const currentYawRef = useRef<number | null>(null);
 
   const isMoving: boolean = data.speed > SPEED_MOORED_THRESHOLD;
   const isMoored: boolean = !isMoving;
@@ -58,11 +61,29 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
     basePitchRef.current += (targetPitch - basePitchRef.current) * delta * 2;
     baseRollRef.current += (targetRoll - baseRollRef.current) * delta * 2;
 
-    // 2) 헤딩(방향) 적용
-    // 2) Apply heading (direction).
-    const headingDeg = data.heading || 0;
-    const targetHeading = (headingDeg * Math.PI) / 180;
-    ref.rotation.y = -targetHeading;
+    // 2) 헤딩(방향) 적용 — 지도 마커와 같은 규칙으로 heading 결측 시 COG 폴백.
+    //    AIS 보고는 수 초 간격의 계단형이라 목표각까지 Lerp로 회전시키되,
+    //    각도 차를 [-π, π]로 정규화해 359°→1°가 반대로 358° 돌지 않고
+    //    항상 최단 방향으로 돌게 한다. 둘 다 결측이면 마지막 방위를 유지한다.
+    // 2) Apply heading — COG fallback, same rule as the map markers. AIS
+    //    reports arrive in multi-second steps, so lerp toward the target with
+    //    the angular difference wrapped to [-π, π]: 359°→1° must turn the
+    //    short way, not swing 358° backwards. With both fields missing the
+    //    last known yaw is kept rather than fabricating due north.
+    const headingDeg = data.heading ?? data.cog;
+    if (headingDeg !== null) {
+      const targetYaw = -(headingDeg * Math.PI) / 180;
+      if (currentYawRef.current === null) {
+        currentYawRef.current = targetYaw; // 첫 값은 스냅 / snap on first value
+      } else {
+        const TWO_PI = 2 * Math.PI;
+        let diff = (targetYaw - currentYawRef.current) % TWO_PI;
+        if (diff > Math.PI) diff -= TWO_PI;
+        if (diff < -Math.PI) diff += TWO_PI;
+        currentYawRef.current += diff * Math.min(1, delta * 2);
+      }
+    }
+    ref.rotation.y = currentYawRef.current ?? 0;
 
     // 3) 수면 요동(바다 흔들림) 보간
     // 3) Wave bobbing (slight up/down and tilt).

@@ -667,9 +667,16 @@ export const useShipStore = create<ShipStore>((set, get) => {
   return storeInstance;
 });
 
+// 검색어는 여기서 한 번 trim한다. 호출부(헤더/대시보드/지도)는 공백만 있는
+// 검색어를 trim으로 걸러내는데, 매칭에 원본을 그대로 쓰면 "EVER " 같은
+// 뒤공백(모바일 자동완성에 흔함)이 게이트는 통과하고 매칭은 전부 실패한다.
+// The query is trimmed once here. Callers gate emptiness on trim(), so an
+// untrimmed match would let a trailing-space query ("EVER ", common with
+// mobile autocomplete) pass the gate yet match no vessel at all.
 export const matchShipQuery = (ship: ShipData, query: string): boolean => {
-  if (query === "") return true;
-  const queryLower = query.toLowerCase();
+  const trimmedQuery = query.trim();
+  if (trimmedQuery === "") return true;
+  const queryLower = trimmedQuery.toLowerCase();
   return (
     ship.name.toLowerCase().includes(queryLower) ||
     ship.id.toLowerCase().includes(queryLower) ||

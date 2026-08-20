@@ -58,6 +58,12 @@ const AppLayout: FC = (): ReactElement => {
    */
   /**
    * [JA]
+   * <div(全体レイアウト)>
+   *  <Sidebar(サイドバー / モバイルではドロワー)>
+   *  <div(コンテンツラッパー)>
+   *    <Header(ヘッダー / ハンバーガーでドロワーを開く)>
+   *    <main(コンテンツ領域)>
+   *      <Outlet(ルートページ)>
    *    </main>
    *  </div>
    * </div>

@@ -19,9 +19,23 @@ import {
 } from "./config";
 
 function canUseLocalStorage(): boolean {
-  return (
-    typeof window !== "undefined" && typeof window.localStorage !== "undefined"
-  );
+  // window.localStorage는 프로퍼티 접근 자체가 SecurityError를 던질 수 있다
+  // (쿠키 전면 차단, 저장소가 거부된 iframe 등). typeof는 미선언 식별자만
+  // 보호하고 throw하는 접근자는 못 막으므로 try로 감싸야 한다 — 이 함수는
+  // 스토어 초기화(모듈 평가) 중에 호출되어, 새면 앱 전체가 빈 화면이 된다.
+  // Accessing window.localStorage itself can throw a SecurityError (cookies
+  // fully blocked, storage-denied iframes). `typeof` only guards undeclared
+  // identifiers, not throwing accessors, so the probe must be wrapped — this
+  // runs during store init (module evaluation), where an escaped exception
+  // blanks the whole app.
+  try {
+    return (
+      typeof window !== "undefined" &&
+      typeof window.localStorage !== "undefined"
+    );
+  } catch {
+    return false;
+  }
 }
 
 const DEFAULT_SETTINGS: AppSettings = {

@@ -39,14 +39,17 @@ const StatsBar = ({
         encodeURIComponent(selectedMmsi)
       : window.location.origin + "/dashboard";
     // clipboard API는 비보안 컨텍스트/권한 거부 시 throw하거나 reject한다.
+    // 폴백 prompt는 아직 복사되지 않은 상태이므로 "복사됨" 문구가 아니라
+    // 수동 복사 안내 문구를 보여준다.
     // clipboard API can throw (insecure context) or reject (denied); guard it.
+    // The fallback prompt means nothing was copied yet, so it must show the
+    // manual-copy instruction, not the success message.
     const onCopied = () => alert(t("shareLinkCopied"));
+    const promptManualCopy = () => window.prompt(t("shareLinkManualCopy"), url);
     if (navigator.clipboard?.writeText) {
-      navigator.clipboard.writeText(url).then(onCopied, () => {
-        window.prompt(t("shareLinkCopied"), url);
-      });
+      navigator.clipboard.writeText(url).then(onCopied, promptManualCopy);
     } else {
-      window.prompt(t("shareLinkCopied"), url);
+      promptManualCopy();
     }
   };
 
@@ -78,8 +81,17 @@ const StatsBar = ({
     const link = window.URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = link;
-    a.download =
-      "maritime_report_" + new Date().toISOString().slice(0, 10) + ".csv";
+    // toISOString()은 UTC 날짜라 KST 오전 9시 이전 내보내기가 전날 날짜로
+    // 찍힌다 — 파일명은 사용자의 로컬 날짜로 만든다.
+    // toISOString() is the UTC date: a KST export before 09:00 gets stamped
+    // with yesterday. Build the filename from the user's local date instead.
+    const exportedAt = new Date();
+    const localDateStamp = [
+      exportedAt.getFullYear(),
+      String(exportedAt.getMonth() + 1).padStart(2, "0"),
+      String(exportedAt.getDate()).padStart(2, "0"),
+    ].join("-");
+    a.download = "maritime_report_" + localDateStamp + ".csv";
     document.body.appendChild(a);
     a.click();
     a.remove();

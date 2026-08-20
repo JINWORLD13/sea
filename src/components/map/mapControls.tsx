@@ -6,7 +6,7 @@ import { useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
 import { useTranslation } from "react-i18next";
 import { useShipStore } from "../../store/useShipStore";
-import type { ShipData } from "../../store/useShipStore";
+import type { RegionBounds, ShipData } from "../../store/useShipStore";
 import { BASEMAP_ORDER } from "./basemaps";
 import type { BasemapId } from "./basemaps";
 
@@ -27,12 +27,14 @@ export const RecenterMap: FC<RecenterProps> = (props: RecenterProps): null => {
 interface AutoFitShipsProps {
   ships: ShipData[];
   regionId: string;
+  regionBounds: RegionBounds;
   shouldSkip: boolean;
 }
 
 export const AutoFitShips: FC<AutoFitShipsProps> = ({
   ships,
   regionId,
+  regionBounds,
   shouldSkip,
 }): null => {
   const mapInstance = useMap();
@@ -45,21 +47,40 @@ export const AutoFitShips: FC<AutoFitShipsProps> = ({
   useEffect(() => {
     if (shouldSkip) return;
     if (hasFittedRef.current) return;
-    if (ships.length === 0) return;
 
-    if (ships.length === 1) {
-      const only = ships[0];
+    // 해역 박스 안의 선박만 맞춤 대상이다. 해역 전환 직후에는 스냅샷
+    // 스로틀(700ms) 때문에 이전 해역 선박이 한 틱 더 렌더되는데, 그 배들로
+    // fitBounds하면 지도가 이전 해역으로 되돌아가고, 이어지는 moveend가
+    // AIS 구독까지 옛 뷰포트로 되감는다. 새 해역 선박이 실제로 도착할
+    // 때까지 hasFittedRef도 세우지 않아 첫 자동 맞춤이 유실되지 않는다.
+    // Only ships inside the region box qualify. Right after a region switch
+    // the 700ms snapshot throttle renders the OLD region's ships for one more
+    // tick; fitting to them flies the map back, and the resulting moveend
+    // re-locks the AIS subscription onto the old viewport. hasFittedRef stays
+    // unset until in-region ships actually arrive, so the first auto-fit for
+    // the new region is never lost.
+    const inRegion = ships.filter(
+      (s) =>
+        s.position.lat >= regionBounds[0] &&
+        s.position.lat <= regionBounds[2] &&
+        s.position.lng >= regionBounds[1] &&
+        s.position.lng <= regionBounds[3],
+    );
+    if (inRegion.length === 0) return;
+
+    if (inRegion.length === 1) {
+      const only = inRegion[0];
       mapInstance.setView([only.position.lat, only.position.lng], 7);
       hasFittedRef.current = true;
       return;
     }
 
     const bounds = L.latLngBounds(
-      ships.map((s) => [s.position.lat, s.position.lng] as [number, number]),
+      inRegion.map((s) => [s.position.lat, s.position.lng] as [number, number]),
     );
     mapInstance.fitBounds(bounds, { padding: [32, 32], maxZoom: 6 });
     hasFittedRef.current = true;
-  }, [ships, shouldSkip, mapInstance]);
+  }, [ships, regionBounds, shouldSkip, mapInstance]);
 
   return null;
 };

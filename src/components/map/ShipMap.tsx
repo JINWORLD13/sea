@@ -235,11 +235,11 @@ const ShipMap: FC = (): ReactElement => {
    */
 
   const mapCenter: [number, number] = mapCenterOverride ?? currentRegion.center;
-  const mapZoom = mapCenterOverride
-    ? 12
-    : currentRegion.id === "singapore"
-      ? 2
-      : 12;
+  // 모든 해역이 항만/해협 스케일의 박스이므로 줌은 동일하게 12를 쓴다.
+  // (싱가포르가 줌 2였던 것은 과거 "Global" 해역 시절의 잔재였다.)
+  // Every region is a port/strait-scale box, so zoom 12 applies uniformly.
+  // (Singapore's old zoom-2 branch was a leftover from the "Global" region.)
+  const mapZoom = 12;
 
   const basemap = BASEMAPS[settings.basemap];
 
@@ -282,6 +282,7 @@ const ShipMap: FC = (): ReactElement => {
         <AutoFitShips
           ships={renderShips}
           regionId={currentRegion.id}
+          regionBounds={currentRegion.bounds}
           shouldSkip={Boolean(mapCenterOverride) || Boolean(selectedShipMmsi)}
         />
 
