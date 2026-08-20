@@ -5,12 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "concurrently --kill-others \"vite\" \"node server/proxy.js\"",
+    "dev:alt": "concurrently --kill-others \"vite --port 5175 --strictPort\" \"node server/proxy.js\"",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
     "kill:8080": "kill-port 8080",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "bench": "vitest run --config vitest.bench.config.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.7",
