@@ -92,6 +92,30 @@ describe("computeRiskUpdates — 지오펜스 에지 / geofence edge", () => {
     // 전역 피드만 디듀프 대상 — 5분 창 안이므로 1건 그대로.
     expect(useShipStore.getState().alertFeed).toHaveLength(1);
   });
+
+  // 에지 트리거의 나머지 절반. 위 테스트는 "진입/이탈/재진입"만 훑기 때문에
+  // 판정이 레벨 트리거로 회귀해도 전부 통과한다 — 같은 자리에서 두 번 연속
+  // 판정하는 틱이 없어서다. 체류 중 침묵을 여기서 따로 못 박는다.
+  // MMSI를 위 테스트와 다르게 쓰는 이유: recentGeoFeedByMmsi는 모듈 전역이라
+  // beforeEach가 지우지 않는다. 같은 MMSI를 재사용하면 앞 테스트가 남긴
+  // 디듀프 타임스탬프 때문에 피드가 0건이 된다.
+  it("구역 안에 머무는 동안에는 경보가 늘지 않는다", () => {
+    const store = useShipStore.getState();
+
+    store.upsertShips([
+      { id: "dweller", position: INSIDE_ZONE, kind: "vessel" },
+    ]);
+    store.checkRisks();
+    expect(useShipStore.getState().ships.dweller.alerts).toHaveLength(1);
+    expect(useShipStore.getState().alertFeed).toHaveLength(1);
+
+    // 위치 그대로 두 번 더 판정. 에지 트리거면 아무 일도 없어야 한다.
+    store.checkRisks();
+    store.checkRisks();
+    expect(useShipStore.getState().ships.dweller.inRestrictedZone).toBe(true);
+    expect(useShipStore.getState().ships.dweller.alerts).toHaveLength(1);
+    expect(useShipStore.getState().alertFeed).toHaveLength(1);
+  });
 });
 
 describe("computeRiskUpdates — 등급 이력 수명 / grade history lifetime", () => {
