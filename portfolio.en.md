@@ -40,7 +40,7 @@ My background is relevant here: I sailed as a deck officer, so I had watched ARP
 | Backend (proxy) | Node.js, Express 5, `ws` |
 | Styling | Tailwind CSS 3, Lucide React |
 | i18n | i18next (Korean · English · Japanese) |
-| Testing | Vitest — 42 tests (maritime-math and risk-grading pure functions, plus the store's risk pass) |
+| Testing | Vitest — 43 tests (maritime-math and risk-grading pure functions, plus the store's risk pass) |
 
 ---
 
@@ -302,7 +302,7 @@ The entire verdict path is isolated as pure functions with no rendering dependen
 | Threshold oscillation (495 ↔ 505 m) | Grade never flips across 10 sweeps |
 | Downgrade timer reset | Closing back in restarts the full 20 s |
 
-42 Vitest tests pass via `npm test`.
+43 Vitest tests pass via `npm test`.
 
 The reason for splitting it out is that maritime math cannot be verified by eye. Vessels can glide across the chart perfectly plausibly while the alerts behind them are computed from ranges that are 22% wrong, and no screenshot will ever show that. Separating the computation from the UI is what makes "this number is correct" a provable claim rather than an impression.
 
@@ -353,7 +353,7 @@ Why this matters — on a monitoring system, leaving a gap visible is far safer 
 - i18n — Korean, English, and Japanese via i18next with browser language detection; all three tables carry identical key sets.
 - Vessel search — merges the local store with the proxy's `/search` endpoint (over the 5,000-vessel server cache); each request cancels the previous one via `AbortController`.
 - Connection panel — Settings polls the proxy's `/health` every 15 seconds and displays upstream state, uptime, cache size, and the active limits verbatim, with no smoothing.
-- Geofencing — edge-triggered alerts on entering a restricted area (fires once, on the transition).
+- Geofencing — edge-triggered alerts on entering the Busan restricted zone (a hardcoded ~2.2 × 4.6 km rectangle). It fires once on the outside→inside transition (`inRestrictedZone !== true`); level-triggering would stack one every 2 seconds for the whole stay. The subtle part is that the dedupe must not guard the edge itself — the flag is set to `true` regardless, so a skipped edge never comes back. Per-ship alerts are therefore recorded on every edge (capped at 20) and only the global feed is deduped, 5 minutes per MMSI. It runs for every vessel regardless of selection, and only for `kind === "vessel"` (AtoN and base stations sit permanently inside any box).
 - Alert feed — deduplicated per MMSI over 5 minutes, capped at 100 entries.
 - Custom markers — SVG `DivIcon`s colored by vessel type and rotated by real heading, cached in a bounded FIFO to eliminate regeneration cost.
 - Deployment — frontend on Vercel (with an SPA rewrite so deep links work), proxy on Render with a `/health` health check.
@@ -372,6 +372,7 @@ Stated plainly, because they are deliberate:
 - CPA is computed point-to-point. Real collision risk should account for vessel length and beam; the static message carries those dimensions, which would change the verdict for large vessels.
 - COLREG encounter types are not classified. Head-on, overtaking, and crossing carry different give-way obligations; adding the rate of change of relative bearing would allow classifying them.
 - The hysteresis constants (1.3× release ratio, 20-second dwell) are judgement, not measurement. They trade flapping against how long an alert lingers after the risk has passed, and the optimum is not knowable without real operational logs.
+- The restricted zone is a single rectangle compiled into the client for Busan waters. Geofencing is a no-op in the Incheon and Singapore regions, the boundary is never drawn on the map (the only cue is the ring on a vessel already inside), and leaving is silent — there is no exit alert. Real fishery boundaries are polygons from an authoritative source.
 - No time-series store. Long-range track replay and historical statistics would require a dedicated store of their own.
 - Performance was measured on the development machine (Apple Silicon). Store application, risk-pass, and notification rates are covered in "Measured performance" (`npm run bench`), but low-end device runs and an always-on FPS/frame-time HUD remain.
 

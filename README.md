@@ -66,11 +66,16 @@ The central engineering problem was throttling a stream that arrives at hundreds
    - Suppressing false positives — the sign of TCPA is checked together with the horizon. A vessel already past its closest point is safe at 50 m
    - Never fabricating a missing value — when COG *and* heading are both absent (common on Class-B), 0° is not used as a default; the vessel is treated as stationary, which blocks a fictitious "steaming due north" vector
    - No alert flapping — a Schmitt trigger (enter at 500 m, release at 650 m) plus a 20-second dwell on downgrades only; upgrades are immediate. An alert should fire fast and clear slow (the warning grade is judged the same way against CPA 1,500 m / TCPA 12 min)
-   - Verification — the verdict path is isolated as pure functions with no rendering dependency, and real encounter situations are pinned as golden cases. 42 Vitest tests pass
+   - Verification — the verdict path is isolated as pure functions with no rendering dependency, and real encounter situations are pinned as golden cases. 43 Vitest tests pass
    - Scans every 2 seconds, O(n) against the selected own-ship
 
-4. Geofencing
-   - Automatic alert when a vessel enters Busan restricted waters — entering vessels are flagged instantly with an orange outline and glow
+4. Geofencing — *the box test is five lines; the alert semantics are the work*
+   - A vessel entering the Busan restricted zone is flagged instantly with an orange dashed ring and glow, layered on top of the vessel-category colour so the ship type is never lost
+   - Edge-triggered, not level-triggered — the alert fires once on the outside→inside transition (`inRestrictedZone !== true`). Level-triggering would stack a fresh alert every 2 seconds for the entire duration of the stay
+   - The dedupe must not swallow the edge — the flag is set to `true` whether or not a feed entry was emitted, so a skipped edge never returns for the rest of the stay. Per-ship alerts are recorded on every edge (capped at 20) and only the global feed is deduped, 5 minutes per MMSI, on the same window the CPA feed uses
+   - The flag is the detector's memory — wiping it makes every vessel already inside re-fire a false "entered" alert at once, which is why the local cache restores it as an explicit boolean and why "clear cache" deliberately leaves the in-memory vessels alone
+   - No hysteresis, unlike CPA — a geofence is an event, not a grade, so jitter surfaces as alert count rather than a flickering colour. The edge trigger, the 5-minute feed dedupe and the 20-alert cap stand in for a Schmitt trigger
+   - Evaluated for every vessel regardless of selection (CPA needs a selected own-ship), and only for `kind === "vessel"` — aids to navigation and base stations sit permanently inside any box and would alert forever
 
 5. Operation Modes
    - Fleet / Safety / Marina mode switching — registered-fleet filter, global alert-feed monitoring, and a small-craft (< 7 kn) filter respectively
@@ -96,7 +101,7 @@ The central engineering problem was throttling a stream that arrives at hundreds
 - Styling: Tailwind CSS, Lucide React
 - Data source: AISStream.io (live global AIS over WebSocket)
 - i18n: i18next (Korean, English, Japanese)
-- Testing: Vitest — 42 tests over the maritime-math and risk-grading pure functions, plus the store's risk pass (`npm test`)
+- Testing: Vitest — 43 tests over the maritime-math and risk-grading pure functions, plus the store's risk pass (`npm test`)
 
 ## 📂 Project Structure
 
@@ -111,7 +116,7 @@ seatrace/
 │   │   ├── shipTypes.ts  # Domain types
 │   │   ├── config.ts     # Tuning constants (all in one place)
 │   │   ├── persistence.ts # localStorage warm cache, settings, fleet
-│   │   └── riskPass.test.ts # Geofence edge & grade-history lifetime tests
+│   │   └── riskPass.test.ts # Geofence edge/dwell & grade-history lifetime tests
 │   ├── components/
 │   │   ├── 3d/           # Three.js / React Three Fiber (Ship, Scene)
 │   │   ├── dashboard/    # ModeSwitcher, StatsBar, Alerts
@@ -255,7 +260,7 @@ All use of the AIS API key is over secure channels only:
   - Suppressing false positives: by range alone, a vessel that has already passed its closest point still reads as danger. Checking the sign of TCPA together with the horizon narrows the verdict to encounters that need action now.
   - Never fabricating a missing value (`cpaVelocity`): when COG *and* heading are both absent — common on Class-B transponders — the vessel is treated as stationary rather than defaulting to 0°. The proxy honestly nulls the sentinels (COG 360, heading 511); filling in 0° here would invent a "steaming due north" vector and poison the alerts.
   - No alert flapping (`riskGrading.ts`): metre-scale jitter around a threshold flips the grade on every scan. A Schmitt trigger separates the enter line (500 m) from the release line (650 m), and a 20-second dwell applies to downgrades only. An alert should fire fast and clear slow — the two directions are not symmetric.
-- Verification: the whole verdict path is isolated as pure functions with no rendering dependency, and real encounter situations — head-on, crossing, overtaking, stationary target, parallel tracks, already separating — became the golden cases. The store's risk pass is covered too, since the geofence edge and the lifetime of the grading history are exactly where a plausible-looking fix regresses. 42 Vitest tests pass via `npm test`.
+- Verification: the whole verdict path is isolated as pure functions with no rendering dependency, and real encounter situations — head-on, crossing, overtaking, stationary target, parallel tracks, already separating — became the golden cases. The store's risk pass is covered too, since the geofence edge and the lifetime of the grading history are exactly where a plausible-looking fix regresses. 43 Vitest tests pass via `npm test`.
   - Why split it out: maritime math cannot be verified by eye. The screen can look perfectly plausible while alerts are computed from ranges that are 22% wrong, and no screenshot will show it.
 
 ## ⚠️ Known Limitations
@@ -270,6 +275,9 @@ These are deliberate, and worth stating plainly:
 - The hysteresis constants (1.3× release ratio, 20-second dwell) are judgement, not measurement. They trade flapping against how long an alert lingers after the risk has passed, and the optimum cannot be known without real VTS operational logs.
 - CPA is computed point-to-point. Real risk depends on hull-to-hull separation given each vessel's length and beam.
 - COLREG encounter situations are not classified. Head-on, overtaking and crossing carry different give-way duties, but this build looks only at range and time.
+- The restricted zone is a single hardcoded rectangle in Busan waters (~2.2 × 4.6 km, about 1% of the Busan region box). Geofencing is a no-op in the Incheon and Singapore regions, and real fishery boundaries are polygons from an authoritative source, not one box compiled into the client.
+- The zone boundary is not drawn on the map. The only cue is the orange ring on a vessel already inside it, so an operator cannot see where the line actually runs.
+- Leaving the zone is silent — there is no exit alert, only the ring disappearing. Entry and exit are asymmetric on purpose, but the feed shows arrivals only.
 - No time-series store. Long-range track playback and statistics would need a separate store.
 - Performance was measured on the development machine (Apple Silicon) — store application, risk pass, and notification rates are covered by `npm run bench` and the in-browser measurement; low-end device runs and an always-on FPS/frame-time HUD remain.
 
