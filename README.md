@@ -66,7 +66,7 @@ The central engineering problem was throttling a stream that arrives at hundreds
    - Suppressing false positives — the sign of TCPA is checked together with the horizon. A vessel already past its closest point is safe at 50 m
    - Never fabricating a missing value — when COG *and* heading are both absent (common on Class-B), 0° is not used as a default; the vessel is treated as stationary, which blocks a fictitious "steaming due north" vector
    - No alert flapping — a Schmitt trigger (enter at 500 m, release at 650 m) plus a 20-second dwell on downgrades only; upgrades are immediate. An alert should fire fast and clear slow (the warning grade is judged the same way against CPA 1,500 m / TCPA 12 min)
-   - Verification — the verdict path is isolated as pure functions with no rendering dependency, and real encounter situations are pinned as golden cases. 43 Vitest tests pass
+   - Verification — the verdict path is isolated as pure functions with no rendering dependency, and real encounter situations are pinned as golden cases. 46 Vitest tests pass
    - Scans every 2 seconds, O(n) against the selected own-ship
 
 4. Geofencing — *the box test is five lines; the alert semantics are the work*
@@ -101,7 +101,7 @@ The central engineering problem was throttling a stream that arrives at hundreds
 - Styling: Tailwind CSS, Lucide React
 - Data source: AISStream.io (live global AIS over WebSocket)
 - i18n: i18next (Korean, English, Japanese)
-- Testing: Vitest — 43 tests over the maritime-math and risk-grading pure functions, plus the store's risk pass (`npm test`)
+- Testing: Vitest — 46 tests over the maritime-math and risk-grading pure functions, plus the store's risk pass and its single-pass invariants (`npm test`)
 
 ## 📂 Project Structure
 
@@ -116,7 +116,7 @@ seatrace/
 │   │   ├── shipTypes.ts  # Domain types
 │   │   ├── config.ts     # Tuning constants (all in one place)
 │   │   ├── persistence.ts # localStorage warm cache, settings, fleet
-│   │   └── riskPass.test.ts # Geofence edge/dwell & grade-history lifetime tests
+│   │   └── riskPass.test.ts # Geofence edge/dwell, grade-history lifetime & single-pass invariants
 │   ├── components/
 │   │   ├── 3d/           # Three.js / React Three Fiber (Ship, Scene)
 │   │   ├── dashboard/    # ModeSwitcher, StatsBar, Alerts
@@ -260,7 +260,7 @@ All use of the AIS API key is over secure channels only:
   - Suppressing false positives: by range alone, a vessel that has already passed its closest point still reads as danger. Checking the sign of TCPA together with the horizon narrows the verdict to encounters that need action now.
   - Never fabricating a missing value (`cpaVelocity`): when COG *and* heading are both absent — common on Class-B transponders — the vessel is treated as stationary rather than defaulting to 0°. The proxy honestly nulls the sentinels (COG 360, heading 511); filling in 0° here would invent a "steaming due north" vector and poison the alerts.
   - No alert flapping (`riskGrading.ts`): metre-scale jitter around a threshold flips the grade on every scan. A Schmitt trigger separates the enter line (500 m) from the release line (650 m), and a 20-second dwell applies to downgrades only. An alert should fire fast and clear slow — the two directions are not symmetric.
-- Verification: the whole verdict path is isolated as pure functions with no rendering dependency, and real encounter situations — head-on, crossing, overtaking, stationary target, parallel tracks, already separating — became the golden cases. The store's risk pass is covered too, since the geofence edge and the lifetime of the grading history are exactly where a plausible-looking fix regresses. 43 Vitest tests pass via `npm test`.
+- Verification: the whole verdict path is isolated as pure functions with no rendering dependency, and real encounter situations — head-on, crossing, overtaking, stationary target, parallel tracks, already separating — became the golden cases. The store's risk pass is covered too, since the geofence edge and the lifetime of the grading history are exactly where a plausible-looking fix regresses. The single-pass properties — one notification per pass, nothing at all on an unchanged tick, a new object only for vessels that changed — are pinned as well, because the benchmark only measures time and would still pass if the pass regressed to an unconditional clone. 46 Vitest tests pass via `npm test`.
   - Why split it out: maritime math cannot be verified by eye. The screen can look perfectly plausible while alerts are computed from ranges that are 22% wrong, and no screenshot will show it.
 
 ## ⚠️ Known Limitations

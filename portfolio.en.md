@@ -18,7 +18,7 @@ The core engineering problem was throttling a live AIS WebSocket stream that arr
 | Project | SEATRACE — Real-time AIS Vessel Tracking |
 | Period / team | Feb 2026 – Mar 2026 · Solo (design, frontend, proxy server, maritime algorithms) |
 | Data source | [AISStream.io](https://aisstream.io) — live global AIS over WebSocket (not mock data) |
-| Size | ~9,500 lines TypeScript/TSX + ~1,300 lines Node proxy |
+| Size | ~9,400 lines TypeScript/TSX + ~1,300 lines Node proxy |
 | Screens | Dashboard · Live Map · Fleet Status · Analytics · Settings |
 
 ### Why I built it
@@ -40,7 +40,7 @@ My background is relevant here: I sailed as a deck officer, so I had watched ARP
 | Backend (proxy) | Node.js, Express 5, `ws` |
 | Styling | Tailwind CSS 3, Lucide React |
 | i18n | i18next (Korean · English · Japanese) |
-| Testing | Vitest — 43 tests (maritime-math and risk-grading pure functions, plus the store's risk pass) |
+| Testing | Vitest — 46 tests (maritime-math and risk-grading pure functions, plus the store's risk pass and its single-pass invariants) |
 
 ---
 
@@ -236,7 +236,7 @@ for (const id of Object.keys(state.ships)) {
 return changed ? { ships: nextShips } : {};  // no change → no notification at all
 ```
 
-Result — 500 clones became at most 1, and 500 notifications became at most 1. On a tick with no change, an empty object is returned and no re-render happens at all. Measured: running the same computation both ways gives 499 → 1 notifications and 40.0 → 0.7 ms per pass (57x); redefining the scan cuts pairs by 250x (see [Measured performance](#measured-performance), `npm run bench`).
+Result — 500 clones became at most 1, and 500 notifications became at most 1. On a tick with no change, an empty object is returned and no re-render happens at all. These three properties — one notification per pass, nothing at all on an unchanged tick, and a new object only for the vessels that actually changed — are pinned as tests in [riskPass.test.ts](src/store/riskPass.test.ts) rather than left to the benchmark, because a timing number does not fail when someone "simplifies" the pass back into an unconditional clone. Measured: running the same computation both ways gives 499 → 1 notifications and 40.0 → 0.7 ms per pass (57x); redefining the scan cuts pairs by 250x (see [Measured performance](#measured-performance), `npm run bench`).
 
 The risk algorithm — I implemented CPA (Closest Point of Approach) and TCPA directly ([maritimeMath.ts](src/utils/maritimeMath.ts)):
 
@@ -302,7 +302,7 @@ The entire verdict path is isolated as pure functions with no rendering dependen
 | Threshold oscillation (495 ↔ 505 m) | Grade never flips across 10 sweeps |
 | Downgrade timer reset | Closing back in restarts the full 20 s |
 
-43 Vitest tests pass via `npm test`.
+46 Vitest tests pass via `npm test`.
 
 The reason for splitting it out is that maritime math cannot be verified by eye. Vessels can glide across the chart perfectly plausibly while the alerts behind them are computed from ranges that are 22% wrong, and no screenshot will ever show that. Separating the computation from the UI is what makes "this number is correct" a provable claim rather than an impression.
 
