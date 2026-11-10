@@ -146,10 +146,6 @@ function buildMergedShip(
     inRestrictedZone: data.inRestrictedZone ?? existingData?.inRestrictedZone,
     alerts: data.alerts ?? existingData?.alerts ?? [],
     lastSeen,
-    fuel: null,
-    motion: null,
-    wind: null,
-    historicalData: existingData?.historicalData ?? [],
   };
 }
 

@@ -75,12 +75,6 @@ export interface ShipData {
   inRestrictedZone?: boolean;
   alerts: ShipAlert[];
   lastSeen?: number;
-  // 레거시 호환 필드 — 실 AIS 데이터에는 존재하지 않으므로 항상 null/[].
-  // Legacy compatibility fields — always null/[] from live data.
-  fuel: number | null;
-  motion: { pitch: number; roll: number } | null;
-  wind: { speed: number; direction: number } | null;
-  historicalData: { timestamp: number; fuel: number; efficiency: number }[];
 }
 
 export interface Region {

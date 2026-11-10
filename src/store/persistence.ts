@@ -230,10 +230,6 @@ function reviveCachedShip(
     inRestrictedZone: candidate.inRestrictedZone === true,
     alerts: [],
     lastSeen,
-    fuel: null,
-    motion: null,
-    wind: null,
-    historicalData: [],
   };
 }
 
@@ -272,11 +268,12 @@ const LEGACY_SHIP_CACHE_KEYS: readonly string[] = [
   "vts:last-known-ais-ships:v1",
 ];
 
-// 영속화된 선박 캐시(현행 v2 + 구버전 v1)를 삭제한다. 함대/설정 키는
-// 건드리지 않는다. 메모리 상태와의 조율은 aisStream.clearLocalShipCache가 한다.
-// Remove the persisted vessel cache (current v2 + legacy v1). Fleet and
-// settings keys are never touched. Coordination with in-memory state lives
-// in aisStream.clearLocalShipCache.
+// 영속화된 선박 캐시(현행 키 + 마이그레이션 이전 키 전부)를 삭제한다.
+// 함대/설정 키는 건드리지 않는다. 메모리 상태와의 조율은
+// aisStream.clearLocalShipCache가 한다.
+// Remove the persisted vessel cache — the current key plus every
+// pre-migration key. Fleet and settings keys are never touched.
+// Coordination with in-memory state lives in aisStream.clearLocalShipCache.
 export function clearPersistedShipCache(): void {
   if (!canUseLocalStorage()) return;
   try {

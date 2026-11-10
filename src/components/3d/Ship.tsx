@@ -23,12 +23,6 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
   const anchorRef = useRef<THREE.Group>(null);
   const bobRef = useRef(0);
   const isPausedRef = useRef(false);
-  // 흔들림(bob)과 분리된 기준 자세. lerp는 기준값에만 적용하고
-  // bob은 매 프레임 그 위에 더해 누적 드리프트를 막는다.
-  // Base attitude kept separate from the bob so the lerp targets a clean
-  // value and the oscillation is layered on top each frame (no drift).
-  const basePitchRef = useRef(0);
-  const baseRollRef = useRef(0);
   // 현재 표시 중인 선수방위(rad). null이면 아직 첫 값을 못 받은 상태.
   // Yaw currently rendered (radians); null until the first value arrives.
   const currentYawRef = useRef<number | null>(null);
@@ -51,21 +45,11 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
     const ref = shipRef.current;
     if (ref === null) return;
 
-    // 1) 피치·롤 보간 (선박 흔들림)
-    // 1) Pitch/roll interpolation (ship motion).
-    const p = data.motion?.pitch ?? 0;
-    const r = data.motion?.roll ?? 0;
-    const intensity = 0.25;
-    const targetPitch = ((p * Math.PI) / 180) * intensity;
-    const targetRoll = ((r * Math.PI) / 180) * intensity;
-    basePitchRef.current += (targetPitch - basePitchRef.current) * delta * 2;
-    baseRollRef.current += (targetRoll - baseRollRef.current) * delta * 2;
-
-    // 2) 헤딩(방향) 적용 — 지도 마커와 같은 규칙으로 heading 결측 시 COG 폴백.
+    // 1) 헤딩(방향) 적용 — 지도 마커와 같은 규칙으로 heading 결측 시 COG 폴백.
     //    AIS 보고는 수 초 간격의 계단형이라 목표각까지 Lerp로 회전시키되,
     //    각도 차를 [-π, π]로 정규화해 359°→1°가 반대로 358° 돌지 않고
     //    항상 최단 방향으로 돌게 한다. 둘 다 결측이면 마지막 방위를 유지한다.
-    // 2) Apply heading — COG fallback, same rule as the map markers. AIS
+    // 1) Apply heading — COG fallback, same rule as the map markers. AIS
     //    reports arrive in multi-second steps, so lerp toward the target with
     //    the angular difference wrapped to [-π, π]: 359°→1° must turn the
     //    short way, not swing 358° backwards. With both fields missing the
@@ -85,8 +69,12 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
     }
     ref.rotation.y = currentYawRef.current ?? 0;
 
-    // 3) 수면 요동(바다 흔들림) 보간
-    // 3) Wave bobbing (slight up/down and tilt).
+    // 2) 수면 요동 — 데이터가 아니라 장식이다. AIS에는 자세(pitch/roll)
+    //    정보가 없으므로, 수신값으로 흔들림을 만들어내지 않고 고정 주기의
+    //    미세한 요동만 더한다.
+    // 2) Wave bobbing — decoration, not data. AIS carries no attitude, so
+    //    rather than inventing heave from the feed this is a small fixed-period
+    //    oscillation and nothing more.
     if (!isPausedRef.current) {
       bobRef.current += delta;
     }
@@ -95,8 +83,8 @@ const Ship: FC<ShipProps> = (props: ShipProps): ReactElement => {
     const bobRoll = Math.sin(t * 0.5) * 0.008;
     const bobPitch = Math.sin(t * 0.4) * 0.006;
     ref.position.y = bobY;
-    ref.rotation.z = baseRollRef.current + bobRoll;
-    ref.rotation.x = basePitchRef.current + bobPitch;
+    ref.rotation.z = bobRoll;
+    ref.rotation.x = bobPitch;
 
     if (anchorRef.current && isMoored) {
       anchorRef.current.rotation.z = Math.sin(t * 0.4) * 0.02;
