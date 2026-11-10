@@ -20,6 +20,10 @@ const LiveMap = (): ReactElement => {
    */
   /**
    * [JA]
+   * <div(コンテナ)>
+   *  <div(オーバーレイボックス)>
+   *    <h2>タイトル</h2>
+   *    <p>ストリーム状態 (connecting/live/reconnecting/error)</p>
    *  </div>
    *  <ShipMap />
    * </div>

@@ -352,7 +352,14 @@ const Header: FC<HeaderProps> = ({ onMenuClick }): ReactElement => {
    */
   /**
    * [JA]
+   * <header(ヘッダー)>
+   *  <div(左セクション)>
+   *    <button(モバイルメニュー — ドロワーを開く)>
+   *    <div(検索ボックス — ローカルとキャッシュを統合した補完)>
    *  </div>
+   *  <div(右セクション)>
+   *    <div(通知ベル + 警報フィードのドロップダウン)>
+   *    <div(現在の海域 + ストリーム状態チップ)>
    *  </div>
    * </header>
    */

@@ -85,9 +85,16 @@ const Sidebar: FC<SidebarProps> = ({ open, onClose }): ReactElement => {
    */
   /**
    * [JA]
+   * <>(フラグメント)
+   *  <div(モバイル用バックドロップ — クリックでドロワーを閉じる、lg 以上では非表示)>
+   *  <aside(サイドバー — lg 未満では translate-x のオフキャンバス)>
+   *   <div(ロゴセクション)>
+   *   <nav(メニューナビゲーション)>
    *     <ul>
+   *       <li><NavLink(ダッシュボード/ライブマップ/船隊ステータス/分析)></li>
    *     </ul>
    *   </nav>
+   *   <div(設定リンク)>
    *  </aside>
    * </>
    */
