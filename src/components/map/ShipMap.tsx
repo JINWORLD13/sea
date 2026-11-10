@@ -141,27 +141,47 @@ const ShipMap: FC = (): ReactElement => {
     );
   }, [filteredShips, viewBounds]);
 
+  // 렌더 상한을 넘으면 "무엇을 버릴지" 골라야 한다. 기준점은 본선 > 화면
+  // 중심 > 공유 링크 좌표 > 해역 중심 순이다. 화면 중심을 해역 중심보다
+  // 먼저 보는 이유: 구독 박스 안에서 지도를 옮기면 해역 중심은 화면 밖으로
+  // 나가고, 그 기준으로 자르면 사용자가 보고 있는 쪽이 아니라 해역 중심에
+  // 가까운 화면 가장자리가 남는다.
+  // Past the render cap something has to be dropped, so rank by distance from
+  // the own-ship, else the screen centre, else a shared-link coordinate, else
+  // the region centre. The screen centre outranks the region centre because
+  // panning inside the subscribed box pushes the region centre off-screen, and
+  // ranking by it then keeps the edge nearest that point rather than what the
+  // operator is actually looking at.
   const renderShips: ShipData[] = useMemo(() => {
     if (inViewShips.length <= MAX_RENDERED_SHIPS) return inViewShips;
 
     const selected = selectedShipMmsi
       ? inViewShips.find((s) => s.id === selectedShipMmsi) || null
       : null;
+    const viewCenter = viewBounds !== null ? viewBounds.getCenter() : null;
     const anchor = selected
       ? selected.position
-      : mapCenterOverride
-        ? { lat: mapCenterOverride[0], lng: mapCenterOverride[1] }
-        : { lat: currentRegion.center[0], lng: currentRegion.center[1] };
+      : viewCenter !== null
+        ? { lat: viewCenter.lat, lng: viewCenter.lng }
+        : mapCenterOverride
+          ? { lat: mapCenterOverride[0], lng: mapCenterOverride[1] }
+          : { lat: currentRegion.center[0], lng: currentRegion.center[1] };
 
-    const sorted = [...inViewShips].sort((a, b) => {
-      const da =
-        Math.abs(a.position.lat - anchor.lat) +
-        Math.abs(a.position.lng - anchor.lng);
-      const db =
-        Math.abs(b.position.lat - anchor.lat) +
-        Math.abs(b.position.lng - anchor.lng);
-      return da - db;
-    });
+    // 경도 1도는 위도 1도보다 짧다(부산 35°N에서 약 82%). 각도를 그대로
+    // 더하면 동서 거리를 과대평가해 순위가 한쪽으로 기운다 — maritimeMath의
+    // latLngToXY와 같은 보정을 쓴다. 순서만 필요하므로 제곱합까지만 구한다.
+    // A degree of longitude is shorter than one of latitude (~82% at Busan's
+    // 35°N), so summing raw degrees overstates east-west distance and skews
+    // the ranking. Apply the same correction latLngToXY uses; ordering only
+    // needs the squared sum, not the square root.
+    const lngScale = Math.cos((anchor.lat * Math.PI) / 180);
+    const distanceSq = (ship: ShipData): number => {
+      const dLat = ship.position.lat - anchor.lat;
+      const dLng = (ship.position.lng - anchor.lng) * lngScale;
+      return dLat * dLat + dLng * dLng;
+    };
+
+    const sorted = [...inViewShips].sort((a, b) => distanceSq(a) - distanceSq(b));
 
     const limited = sorted.slice(0, MAX_RENDERED_SHIPS);
     if (selected && limited.some((s) => s.id === selected.id) === false) {
@@ -169,7 +189,13 @@ const ShipMap: FC = (): ReactElement => {
       limited.unshift(selected);
     }
     return limited;
-  }, [inViewShips, selectedShipMmsi, mapCenterOverride, currentRegion.center]);
+  }, [
+    inViewShips,
+    selectedShipMmsi,
+    viewBounds,
+    mapCenterOverride,
+    currentRegion.center,
+  ]);
 
   // 렌더 상한에 걸려 숨겨진 선박 수(정직한 "+N more" 칩에 사용).
   // Ships hidden by the render cap (drives the honest "+N more" chip).
@@ -216,8 +242,15 @@ const ShipMap: FC = (): ReactElement => {
    */
   /**
    * [JA]
+   * <div(コンテナ)>
+   *  <MapContainer(地図)>
+   *    <TileLayer(ベースマップ)> + <TileLayer(航路標識オーバーレイ)>
    *    <RecenterMap /> <ViewportTracker /> <AutoFitShips />
+   *    <ShipsLayer(マーカー/クラスタ/針路ベクトル/航跡)>
+   *    <ReplayGhostLayer(リプレイゴースト)>
    *  </MapContainer>
+   *  <div(ステータスオーバーレイ)> <BasemapControl(レイヤーコントロール)>
+   *  <div(+N チップ)> <div(統計情報パネル)>
    * </div>
    */
   /**
