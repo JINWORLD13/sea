@@ -168,3 +168,133 @@ describe("computeRiskUpdates — 등급 이력 수명 / grade history lifetime",
     expect(targetSeverity()).toBe("warning");
   });
 });
+
+// 포트폴리오가 가장 앞세우는 주장 — "전체 복사 500회 → 최대 1회, 구독자 알림
+// 500회 → 최대 1회, 변화 없는 틱은 아예 알리지 않음" — 을 성질로 못 박는다.
+// 벤치(bench/perf.bench.ts)는 이 차이를 시간으로 재지만, 시간은 회귀를
+// 막아주지 않는다. 누군가 패스를 `{ ...state.ships }` 무조건 복사나 선박별
+// updateShip 호출로 "단순화"하면 벤치 숫자만 나빠지고 테스트는 통과한다.
+// 여기서 보는 것은 ships 참조 동일성이다 — 구독자(useShipSnapshot)가
+// `state.ships !== previousState.ships`로 렌더를 가르므로, 이 참조가
+// 리렌더 발생 여부 그 자체다.
+// Pins the claim the write-up leads with: one clone and one subscriber
+// notification per pass, and no notification at all on an unchanged tick.
+// The bench measures the same thing in milliseconds, but timings do not stop
+// regressions — "simplifying" the pass to an unconditional `{ ...state.ships }`
+// or a per-ship updateShip loop would only move the numbers. What is asserted
+// here is `ships` reference identity, because subscribers (useShipSnapshot)
+// gate rendering on `state.ships !== previousState.ships`: that reference *is*
+// whether a re-render happens.
+describe("computeRiskUpdates — 단일 패스 / single-pass invariants", () => {
+  const FLEET_SIZE = 200;
+  const ownId = "sp_own";
+  const targetId = (index: number): string => `sp_t${index}`;
+
+  // 본선과 마주 보는 침로로 선단을 세운다. CPA는 경도 오프셋과 같으므로
+  // 200 m(danger)에서 20 km(safe)까지 등급이 섞이도록 흩뿌린다. 제한 구역
+  // (lat 35.08~35.10)보다 남쪽이라 지오펜스 경보는 끼어들지 않는다.
+  // A fleet on reciprocal courses: CPA equals the longitude offset, so
+  // spreading 200 m to 20 km mixes every grade. All of it sits south of the
+  // restricted zone, so no geofence alert interferes.
+  const seedFleet = (): void => {
+    useShipStore.getState().upsertShips([
+      {
+        id: ownId,
+        position: { lat: OWN_LAT, lng: 129.0 },
+        cog: 0,
+        speed: 10,
+        kind: "vessel",
+      },
+      ...Array.from({ length: FLEET_SIZE }, (_unused, index) => ({
+        id: targetId(index),
+        position: {
+          lat: OWN_LAT + dLat,
+          lng: 129.0 + lngOffsetForCpa(200 + index * 100),
+        },
+        cog: 180,
+        speed: 10,
+        kind: "vessel" as const,
+      })),
+    ]);
+  };
+
+  // ships 참조가 실제로 바뀐 횟수만 센다 — 리렌더로 이어지는 알림의 수.
+  // Counts only notifications where `ships` actually changed identity.
+  const countShipNotifications = (run: () => void): number => {
+    let notifications = 0;
+    const unsubscribe = useShipStore.subscribe((state, previous) => {
+      if (state.ships !== previous.ships) notifications += 1;
+    });
+    try {
+      run();
+    } finally {
+      unsubscribe();
+    }
+    return notifications;
+  };
+
+  beforeEach(() => {
+    resetStore();
+    seedFleet();
+    useShipStore.getState().selectShip(ownId);
+  });
+
+  it("200척을 한꺼번에 갱신해도 알림은 1회다", () => {
+    const store = useShipStore.getState();
+    const notifications = countShipNotifications(() => store.checkRisks());
+
+    expect(notifications).toBe(1);
+    // 패스가 실제로 일을 했는지 확인 — 등급이 섞여 나와야 한다.
+    const graded = Object.values(useShipStore.getState().ships).filter(
+      (ship) => ship.risk !== undefined,
+    );
+    expect(graded).toHaveLength(FLEET_SIZE);
+    expect(graded.some((ship) => ship.risk?.severity === "danger")).toBe(true);
+    expect(graded.some((ship) => ship.risk?.severity === "safe")).toBe(true);
+  });
+
+  it("변화가 없는 틱은 ships 참조를 그대로 둔다 (리렌더 0회)", () => {
+    const store = useShipStore.getState();
+    store.checkRisks(); // 첫 패스에서 위험도·구역 플래그가 전부 자리를 잡는다.
+
+    const settled = useShipStore.getState().ships;
+    const notifications = countShipNotifications(() => store.checkRisks());
+
+    expect(notifications).toBe(0);
+    expect(useShipStore.getState().ships).toBe(settled);
+  });
+
+  it("바뀐 선박만 새 객체가 되고 나머지는 참조를 유지한다 (copy-on-write)", () => {
+    const store = useShipStore.getState();
+    store.checkRisks();
+
+    // 표적 하나만 움직인다 — 본선을 움직이면 전원의 CPA가 바뀌어 비교가 무의미해진다.
+    // Move one target only; moving the own-ship would change every CPA.
+    const movedId = targetId(7);
+    store.upsertShips([
+      {
+        id: movedId,
+        position: {
+          lat: OWN_LAT + dLat,
+          lng: 129.0 + lngOffsetForCpa(5_000),
+        },
+        cog: 180,
+        speed: 10,
+      },
+    ]);
+
+    const before = useShipStore.getState().ships;
+    const notifications = countShipNotifications(() => store.checkRisks());
+    const after = useShipStore.getState().ships;
+
+    expect(notifications).toBe(1);
+    expect(after).not.toBe(before);
+    expect(after[movedId]).not.toBe(before[movedId]);
+
+    const untouched = Object.keys(before).filter((id) => id !== movedId);
+    expect(untouched).toHaveLength(FLEET_SIZE); // 본선 + 나머지 표적
+    for (const id of untouched) {
+      expect(after[id]).toBe(before[id]);
+    }
+  });
+});
